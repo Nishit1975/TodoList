@@ -5,9 +5,6 @@ import {
     Mail,
     Shield,
     Calendar,
-    CheckCircle2,
-    Folder,
-    CheckSquare,
 } from 'lucide-react';
 import { getAuthUser } from '@/app/lib/auth';
 import ProfileEditForm from '@/components/ui/ProfileEditForm';
@@ -25,12 +22,7 @@ export default async function AdminProfilePage() {
         );
     }
 
-    // Mock stats - in production, fetch from API
-    const stats = {
-        totalTasks: 24,
-        completedTasks: 18,
-        activeProjects: 6,
-    };
+
 
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-8">
@@ -66,8 +58,8 @@ export default async function AdminProfilePage() {
                                     <h2 className="text-2xl font-black text-slate-900 mb-1">{user.username}</h2>
                                     <p className="text-sm text-slate-500 mb-3">{user.email}</p>
                                     <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-black border-2 ${user.role === 'admin'
-                                            ? 'bg-purple-100 text-purple-700 border-purple-200'
-                                            : 'bg-blue-100 text-blue-700 border-blue-200'
+                                        ? 'bg-purple-100 text-purple-700 border-purple-200'
+                                        : 'bg-blue-100 text-blue-700 border-blue-200'
                                         }`}>
                                         <Shield className="w-3.5 h-3.5" />
                                         {user.role === 'admin' ? 'Administrator' : 'User'}
@@ -96,40 +88,8 @@ export default async function AdminProfilePage() {
                         </div>
                     </div>
 
-                    {/* Right Column - Profile Details & Stats */}
+                    {/* Right Column - Profile Details */}
                     <div className="lg:col-span-2 space-y-6">
-                        {/* Statistics */}
-                        <div className="grid grid-cols-3 gap-4">
-                            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-lg transition-shadow">
-                                <div className="flex items-center justify-between mb-2">
-                                    <CheckSquare className="w-5 h-5 text-teal-600" />
-                                    <span className="text-2xl font-black text-slate-900">
-                                        {stats.totalTasks}
-                                    </span>
-                                </div>
-                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">Total Tasks</p>
-                            </div>
-
-                            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-lg transition-shadow">
-                                <div className="flex items-center justify-between mb-2">
-                                    <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                                    <span className="text-2xl font-black text-slate-900">
-                                        {stats.completedTasks}
-                                    </span>
-                                </div>
-                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">Completed</p>
-                            </div>
-
-                            <div className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow-lg transition-shadow">
-                                <div className="flex items-center justify-between mb-2">
-                                    <Folder className="w-5 h-5 text-violet-600" />
-                                    <span className="text-2xl font-black text-slate-900">
-                                        {stats.activeProjects}
-                                    </span>
-                                </div>
-                                <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">Projects</p>
-                            </div>
-                        </div>
 
                         {/* Profile Information Form */}
                         <ProfileEditForm
