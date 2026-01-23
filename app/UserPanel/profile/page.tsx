@@ -5,9 +5,6 @@ import {
   Mail,
   Shield,
   Calendar,
-  CheckCircle2,
-  Folder,
-  CheckSquare,
 } from 'lucide-react';
 import { getAuthUser } from '@/app/lib/auth';
 import ProfileEditForm from '@/components/ui/ProfileEditForm';
