@@ -13,7 +13,7 @@ const prisma =
       user: "root",
       password: "Nishit@1975",
       port: 3306,
-      database: "todolist_db",
+      database: "todo_list",
     }),
   });
 
