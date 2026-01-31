@@ -18,6 +18,16 @@ model comments {
   @@index([user_id], map: "user_id")
 }
 
+model contact_messages {
+  id         Int       @id @default(autoincrement())
+  name       String    @db.VarChar(255)
+  email      String    @db.VarChar(255)
+  subject    String    @db.VarChar(255)
+  message    String    @db.Text
+  is_read    Boolean   @default(false)
+  created_at DateTime  @default(now()) @db.Timestamp(0)
+}
+
 model projects {
   project_id  Int                @id @default(autoincrement())
   name        String             @db.VarChar(255)
