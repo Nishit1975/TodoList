@@ -67,7 +67,11 @@ export function AdminSidebar() {
                     </p>
 
                     {mainNavItems.map((item) => {
-                        const isActive = pathname === item.href;
+                        // Improved active detection for nested routes
+                        const isActive = item.href === "/AdminPanel"
+                            ? pathname === "/AdminPanel"
+                            : pathname.startsWith(item.href);
+
                         return (
                             <Link
                                 key={item.name}
@@ -78,10 +82,12 @@ export function AdminSidebar() {
                                         ? "bg-indigo-900/50 text-indigo-300"
                                         : "text-slate-400 hover:bg-slate-800 hover:text-slate-100"
                                     }`}
+                                suppressHydrationWarning
                             >
                                 <item.icon
                                     className={`w-5 h-5 ${isActive ? "text-indigo-400" : "text-slate-500"
                                         }`}
+                                    suppressHydrationWarning
                                 />
                                 {item.name}
                             </Link>
@@ -107,10 +113,12 @@ export function AdminSidebar() {
                                         ? "bg-indigo-900/50 text-indigo-300"
                                         : "text-slate-400 hover:bg-slate-800 hover:text-slate-100"
                                     }`}
+                                suppressHydrationWarning
                             >
                                 <item.icon
                                     className={`w-5 h-5 ${isActive ? "text-indigo-400" : "text-slate-500"
                                         }`}
+                                    suppressHydrationWarning
                                 />
                                 {item.name}
                             </Link>

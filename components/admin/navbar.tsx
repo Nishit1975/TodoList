@@ -49,22 +49,44 @@ export function AdminNavbar() {
 
   // Fetch unread contact messages for notifications
   useEffect(() => {
+    // Ensure we're in the browser environment
+    if (typeof window === 'undefined') return;
+
+    let isMounted = true;
+
     const fetchUnreadMessages = async () => {
       try {
         const response = await fetch("/api/contact/unread");
-        if (response.ok) {
-          const data = await response.json();
+        if (!response.ok) {
+          // Only log errors in development to avoid console spam
+          if (process.env.NODE_ENV === 'development') {
+            console.warn("Failed to fetch unread messages:", response.status);
+          }
+          return;
+        }
+        const data = await response.json();
+        if (isMounted) {
           setUnreadMessages(data);
         }
       } catch (error) {
-        console.error("Failed to fetch unread messages:", error);
+        // Only log errors in development
+        if (process.env.NODE_ENV === 'development') {
+          console.error("Failed to fetch unread messages:", error);
+        }
       }
     };
 
-    fetchUnreadMessages();
+    // Delay the initial fetch slightly to ensure everything is ready
+    const initialTimeout = setTimeout(fetchUnreadMessages, 100);
+
     // Refresh every 30 seconds
     const interval = setInterval(fetchUnreadMessages, 30000);
-    return () => clearInterval(interval);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(initialTimeout);
+      clearInterval(interval);
+    };
   }, []);
 
   const unreadCount = unreadMessages.length;

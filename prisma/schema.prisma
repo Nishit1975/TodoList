@@ -29,15 +29,30 @@ model contact_messages {
 }
 
 model projects {
-  project_id  Int                @id @default(autoincrement())
-  name        String             @db.VarChar(255)
-  description String?            @db.Text
-  status      projects_status?   @default(Not_Started)
-  priority    projects_priority? @default(Medium)
-  start_date  DateTime?          @db.Date
-  due_date    DateTime?          @db.Date
-  created_at  DateTime?          @default(now()) @db.Timestamp(0)
-  tasks       tasks[]
+  project_id      Int                @id @default(autoincrement())
+  name            String             @db.VarChar(255)
+  description     String?            @db.Text
+  status          projects_status?   @default(Not_Started)
+  priority        projects_priority? @default(Medium)
+  start_date      DateTime?          @db.Date
+  due_date        DateTime?          @db.Date
+  created_at      DateTime?          @default(now()) @db.Timestamp(0)
+  tasks           tasks[]
+  project_members project_members[]
+}
+
+model project_members {
+  id         Int       @id @default(autoincrement())
+  project_id Int
+  user_id    Int
+  role       String    @db.VarChar(100)
+  added_at   DateTime  @default(now()) @db.Timestamp(0)
+  projects   projects  @relation(fields: [project_id], references: [project_id], onDelete: Cascade, onUpdate: NoAction)
+  users      users     @relation(fields: [user_id], references: [userid], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([project_id, user_id])
+  @@index([project_id], map: "project_id")
+  @@index([user_id], map: "user_id")
 }
 
 model subtasks {
@@ -91,17 +106,18 @@ model tasks {
 }
 
 model users {
-  userid                           Int        @id @default(autoincrement())
-  username                         String     @db.VarChar(100)
-  email                            String     @unique(map: "email") @db.VarChar(150)
-  password                         String     @db.VarChar(255)
-  role                             String?    @default("user") @db.VarChar(50)
-  is_active                        Boolean?   @default(true)
-  created_at                       DateTime?  @default(now()) @db.Timestamp(0)
-  updated_at                       DateTime?  @default(now()) @db.Timestamp(0)
+  userid                           Int               @id @default(autoincrement())
+  username                         String            @db.VarChar(100)
+  email                            String            @unique(map: "email") @db.VarChar(150)
+  password                         String            @db.VarChar(255)
+  role                             String?           @default("user") @db.VarChar(50)
+  is_active                        Boolean?          @default(true)
+  created_at                       DateTime?         @default(now()) @db.Timestamp(0)
+  updated_at                       DateTime?         @default(now()) @db.Timestamp(0)
   comments                         comments[]
-  tasks_tasks_assignee_idTousers   tasks[]    @relation("tasks_assignee_idTousers")
-  tasks_tasks_created_by_idTousers tasks[]    @relation("tasks_created_by_idTousers")
+  tasks_tasks_assignee_idTousers   tasks[]           @relation("tasks_assignee_idTousers")
+  tasks_tasks_created_by_idTousers tasks[]           @relation("tasks_created_by_idTousers")
+  project_members                  project_members[]
 }
 
 enum projects_status {

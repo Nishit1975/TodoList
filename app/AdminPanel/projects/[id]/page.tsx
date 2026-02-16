@@ -32,6 +32,7 @@ interface TeamMember {
     avatar: string;
     color: string;
     role: string;
+    userId: number;
 }
 
 interface Task {
@@ -65,6 +66,12 @@ interface ProjectDetail {
     category: string;
 }
 
+interface UserType {
+    userid: number;
+    username: string;
+    email: string;
+}
+
 export default function ProjectDetailPage() {
     const params = useParams();
     const router = useRouter();
@@ -74,9 +81,12 @@ export default function ProjectDetailPage() {
     const [showAddTaskModal, setShowAddTaskModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showTaskDetailModal, setShowTaskDetailModal] = useState(false);
+    const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
     // State for real data from API
     const [project, setProject] = useState<ProjectDetail | null>(null);
+    const [users, setUsers] = useState<UserType[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [isSaving, setIsSaving] = useState(false);
@@ -91,11 +101,35 @@ export default function ProjectDetailPage() {
         dueDate: '',
     });
 
-    // Fetch project data from API
+    // Form state for adding member
+    const [memberFormData, setMemberFormData] = useState({
+        userId: '',
+        role: '',
+    });
+
+    // Form state for adding task
+    const [taskFormData, setTaskFormData] = useState({
+        title: '',
+        description: '',
+        status: 'NOT_STARTED',
+        priority: 'MEDIUM',
+        assigneeId: '',
+        dueDate: '',
+    });
+
+    //Comment state
+    const [newComment, setNewComment] = useState('');
+
+    // Current user state
+    const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+
+    // Fetch project data and users from API
     useEffect(() => {
         if (projectId) {
             fetchProject();
         }
+        fetchUsers();
+        fetchCurrentUser();
     }, [projectId]);
 
     const fetchProject = async () => {
@@ -122,6 +156,35 @@ export default function ProjectDetailPage() {
             setProject(null);
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    // Fetch users from database
+    const fetchUsers = async () => {
+        try {
+            const response = await fetch('/api/users');
+            if (response.ok) {
+                const data = await response.json();
+                setUsers(data);
+            }
+        } catch (err) {
+            console.error('Error fetching users:', err);
+        }
+    };
+
+    // Fetch current user
+    const fetchCurrentUser = async (): Promise<number | null> => {
+        try {
+            const response = await fetch('/api/auth/me');
+            if (response.ok) {
+                const data = await response.json();
+                setCurrentUserId(data.userId);
+                return data.userId;
+            }
+            return null;
+        } catch (err) {
+            console.error('Error fetching current user:', err);
+            return null;
         }
     };
 
@@ -196,6 +259,177 @@ export default function ProjectDetailPage() {
             setIsSaving(false);
         }
     };
+
+    // Handle Add Team Member
+    const handleAddMember = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!project) return;
+
+        setIsSaving(true);
+
+        try {
+            const response = await fetch(`/api/projects/${project.id}/members`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    userId: memberFormData.userId,
+                    role: memberFormData.role,
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to add team member');
+            }
+
+            // Success - refresh project data and close modal
+            await fetchProject();
+            setShowAddMemberModal(false);
+            setMemberFormData({ userId: '', role: '' });
+        } catch (err: any) {
+            console.error('Error adding team member:', err);
+            alert(err.message || 'Failed to add team member. Please try again.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Handle Remove Team Member
+    const handleRemoveMember = async (userId: number, userName: string) => {
+        if (!project) return;
+
+        const confirmDelete = confirm(`Are you sure you want to remove ${userName} from this project?`);
+        if (!confirmDelete) return;
+
+        try {
+            const response = await fetch(`/api/projects/${project.id}/members?userId=${userId}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to remove team member');
+            }
+
+            // Success - refresh project data
+            await fetchProject();
+            alert(`${userName} has been removed from the project.`);
+        } catch (err: any) {
+            console.error('Error removing team member:', err);
+            alert(err.message || 'Failed to remove team member. Please try again.');
+        }
+    };
+
+    // Handle Add Task
+    const handleAddTask = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!project) return;
+
+        setIsSaving(true);
+
+        try {
+            // Get current user ID (either from state or fetch it)
+            let userId = currentUserId;
+            if (!userId) {
+                userId = await fetchCurrentUser();
+            }
+
+            // Validate we have a user ID
+            if (!userId) {
+                throw new Error('Unable to identify current user. Please refresh and try again.');
+            }
+
+            const response = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: taskFormData.title,
+                    description: taskFormData.description,
+                    status: taskFormData.status,
+                    priority: taskFormData.priority,
+                    assigneeId: taskFormData.assigneeId,
+                    createdById: userId,
+                    projectId: project.id,
+                    dueDate: taskFormData.dueDate || null,
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to add task');
+            }
+
+            // Success - refresh project data and close modal
+            await fetchProject();
+            setShowAddTaskModal(false);
+            setTaskFormData({
+                title: '',
+                description: '',
+                status: 'NOT_STARTED',
+                priority: 'MEDIUM',
+                assigneeId: '',
+                dueDate: '',
+            });
+        } catch (err: any) {
+            console.error('Error adding task:', err);
+            alert(err.message || 'Failed to add task. Please try again.');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Handle Toggle Task Status (Complete/Incomplete)
+    const handleToggleTaskStatus = async (taskId: number, currentStatus: string) => {
+        try {
+            // Determine new status: if completed, set to NOT_STARTED; if not completed, set to DONE
+            const newStatus = currentStatus === 'Completed' || currentStatus === 'DONE' ? 'NOT_STARTED' : 'DONE';
+
+            const response = await fetch(`/api/tasks/${taskId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: newStatus,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to update task status');
+            }
+
+            // Refresh project data to show updated task
+            await fetchProject();
+        } catch (err) {
+            console.error('Error toggling task status:', err);
+            alert('Failed to update task. Please try again.');
+        }
+    };
+
+    // Handle Delete Task
+    const handleDeleteTask = async (taskId: number) => {
+        if (!confirm('Are you sure you want to delete this task? This action cannot be undone.')) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/tasks/${taskId}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete task');
+            }
+
+            // Close the modal and refresh project data
+            setShowTaskDetailModal(false);
+            setSelectedTask(null);
+            await fetchProject();
+            alert('Task deleted successfully!');
+        } catch (err) {
+            console.error('Error deleting task:', err);
+            alert('Failed to delete task. Please try again.');
+        }
+    };
+
 
     const formatDateForInput = (dateStr: string): string => {
         if (!dateStr) return '';
@@ -449,7 +683,10 @@ export default function ProjectDetailPage() {
                                         >
                                             <div className="flex items-center gap-4">
                                                 <div className="flex items-center gap-3 flex-1">
-                                                    <div className="w-5 h-5 rounded border-2 border-slate-300 flex items-center justify-center">
+                                                    <div
+                                                        className="w-5 h-5 rounded border-2 border-slate-300 flex items-center justify-center cursor-pointer hover:border-blue-500 transition-colors"
+                                                        onClick={() => handleToggleTaskStatus(task.id, task.status)}
+                                                    >
                                                         {task.status === 'Completed' && (
                                                             <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                                                         )}
@@ -476,7 +713,14 @@ export default function ProjectDetailPage() {
                                                 <span className={`text-xs font-black ${getPriorityColor(task.priority)}`}>
                                                     {task.priority}
                                                 </span>
-                                                <button className="p-2 hover:bg-slate-100 rounded-lg transition-colors">
+                                                <button
+                                                    className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
+                                                    onClick={() => {
+                                                        setSelectedTask(task);
+                                                        setShowTaskDetailModal(true);
+                                                    }}
+                                                    title="View details and comments"
+                                                >
                                                     <MoreVertical className="w-4 h-4 text-slate-400" />
                                                 </button>
                                             </div>
@@ -520,8 +764,12 @@ export default function ProjectDetailPage() {
                                                 <p className="font-bold text-slate-900 text-sm">{member.name}</p>
                                                 <p className="text-xs text-slate-500">{member.role}</p>
                                             </div>
-                                            <button className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors">
-                                                <MoreVertical className="w-4 h-4 text-slate-400" />
+                                            <button
+                                                onClick={() => handleRemoveMember(member.userId, member.name)}
+                                                className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group"
+                                                title="Remove team member"
+                                            >
+                                                <Trash2 className="w-4 h-4 text-slate-400 group-hover:text-red-600 transition-colors" />
                                             </button>
                                         </div>
                                     ))
@@ -736,53 +984,257 @@ export default function ProjectDetailPage() {
                                 <button
                                     onClick={() => setShowAddTaskModal(false)}
                                     className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                                    disabled={isSaving}
                                 >
                                     <X className="w-5 h-5 text-slate-500" />
                                 </button>
                             </div>
-                            <form className="space-y-4">
+                            <form className="space-y-4" onSubmit={handleAddTask}>
                                 <div>
-                                    <label className="block text-sm font-bold text-slate-700 mb-2">Task Name</label>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Task Name *</label>
                                     <input
                                         type="text"
                                         placeholder="Enter task name"
+                                        value={taskFormData.title}
+                                        onChange={(e) => setTaskFormData({ ...taskFormData, title: e.target.value })}
                                         className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:bg-white focus:outline-none transition-all"
+                                        required
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-700 mb-2">Description</label>
+                                    <textarea
+                                        placeholder="Enter task description"
+                                        rows={3}
+                                        value={taskFormData.description}
+                                        onChange={(e) => setTaskFormData({ ...taskFormData, description: e.target.value })}
+                                        className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:bg-white focus:outline-none transition-all resize-none"
                                     />
                                 </div>
                                 <div className="grid grid-cols-2 gap-4">
                                     <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-2">Status</label>
-                                        <select className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:outline-none cursor-pointer">
-                                            <option>Pending</option>
-                                            <option>In Progress</option>
-                                            <option>Completed</option>
+                                        <select
+                                            value={taskFormData.status}
+                                            onChange={(e) => setTaskFormData({ ...taskFormData, status: e.target.value })}
+                                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:outline-none cursor-pointer"
+                                        >
+                                            <option value="NOT_STARTED">Not Started</option>
+                                            <option value="IN_PROGRESS">In Progress</option>
+                                            <option value="IN_REVIEW">In Review</option>
+                                            <option value="DONE">Done</option>
                                         </select>
                                     </div>
                                     <div>
                                         <label className="block text-sm font-bold text-slate-700 mb-2">Priority</label>
-                                        <select className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:outline-none cursor-pointer">
-                                            <option>Low</option>
-                                            <option>Medium</option>
-                                            <option>High</option>
+                                        <select
+                                            value={taskFormData.priority}
+                                            onChange={(e) => setTaskFormData({ ...taskFormData, priority: e.target.value })}
+                                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:outline-none cursor-pointer"
+                                        >
+                                            <option value="LOW">Low</option>
+                                            <option value="MEDIUM">Medium</option>
+                                            <option value="HIGH">High</option>
                                         </select>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Assign To *</label>
+                                        <select
+                                            value={taskFormData.assigneeId}
+                                            onChange={(e) => setTaskFormData({ ...taskFormData, assigneeId: e.target.value })}
+                                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:outline-none cursor-pointer"
+                                            required
+                                        >
+                                            <option value="">Select Assignee</option>
+                                            {users.map((user) => (
+                                                <option key={user.userid} value={user.userid}>
+                                                    {user.username}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-700 mb-2">Due Date</label>
+                                        <input
+                                            type="date"
+                                            value={taskFormData.dueDate}
+                                            onChange={(e) => setTaskFormData({ ...taskFormData, dueDate: e.target.value })}
+                                            className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:outline-none transition-all"
+                                        />
                                     </div>
                                 </div>
                                 <div className="flex gap-3 pt-4">
                                     <button
                                         type="button"
-                                        onClick={() => setShowAddTaskModal(false)}
-                                        className="flex-1 px-6 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700 transition-all"
+                                        onClick={() => {
+                                            setShowAddTaskModal(false);
+                                            setTaskFormData({
+                                                title: '',
+                                                description: '',
+                                                status: 'NOT_STARTED',
+                                                priority: 'MEDIUM',
+                                                assigneeId: '',
+                                                dueDate: '',
+                                            });
+                                        }}
+                                        disabled={isSaving}
+                                        className="flex-1 px-6 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700 transition-all disabled:opacity-50"
                                     >
                                         Cancel
                                     </button>
                                     <button
                                         type="submit"
-                                        className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl font-bold text-white hover:shadow-xl transition-all"
+                                        disabled={isSaving}
+                                        className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl font-bold text-white hover:shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Add Task
+                                        {isSaving ? (
+                                            <>
+                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                Adding...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Plus className="w-4 h-4" />
+                                                Add Task
+                                            </>
+                                        )}
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                )}
+
+                {/* Task Detail Modal with Comments */}
+                {showTaskDetailModal && selectedTask && (
+                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-3xl p-8 max-w-2xl w-full shadow-2xl max-h-[90vh] overflow-y-auto">
+                            <div className="flex items-center justify-between mb-6">
+                                <h2 className="text-2xl font-black text-slate-900">{selectedTask.name}</h2>
+                                <button
+                                    onClick={() => {
+                                        setShowTaskDetailModal(false);
+                                        setSelectedTask(null);
+                                        setNewComment('');
+                                    }}
+                                    className="p-2 hover:bg-slate-100 rounded-xl transition-colors"
+                                >
+                                    <X className="w-5 h-5 text-slate-500" />
+                                </button>
+                            </div>
+
+                            {/* Task Details */}
+                            <div className="space-y-4 mb-6">
+                                <div>
+                                    <label className="block text-sm font-bold text-slate-500 mb-1">Description</label>
+                                    <p className="text-slate-700">{selectedTask.description || 'No description provided'}</p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-500 mb-1">Status</label>
+                                        <span className={`inline-block px-3 py-1 rounded-lg text-xs font-bold border ${getStatusColor(selectedTask.status)}`}>
+                                            {selectedTask.status}
+                                        </span>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-500 mb-1">Priority</label>
+                                        <span className={`text-sm font-black ${getPriorityColor(selectedTask.priority)}`}>
+                                            {selectedTask.priority}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-500 mb-1">Assigned To</label>
+                                        <p className="text-slate-700">{selectedTask.assignee}</p>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-bold text-slate-500 mb-1">Due Date</label>
+                                        <p className="text-slate-700">{selectedTask.dueDate || 'Not set'}</p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Comments Section */}
+                            <div className="border-t border-slate-200 pt-6">
+                                <h3 className="text-lg font-black text-slate-900 mb-4">Comments</h3>
+
+                                {/* Add Comment Form */}
+                                <form
+                                    onSubmit={async (e) => {
+                                        e.preventDefault();
+                                        if (!newComment.trim()) return;
+
+                                        try {
+                                            // Get current user ID
+                                            let userId = currentUserId;
+                                            if (!userId) {
+                                                userId = await fetchCurrentUser();
+                                            }
+
+                                            if (!userId) {
+                                                alert('Unable to identify current user. Please refresh and try again.');
+                                                return;
+                                            }
+
+                                            const response = await fetch(`/api/tasks/${selectedTask.id}/comments`, {
+                                                method: 'POST',
+                                                headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({
+                                                    content: newComment,
+                                                    userId: userId,
+                                                }),
+                                            });
+
+                                            if (!response.ok) {
+                                                throw new Error('Failed to add comment');
+                                            }
+
+                                            // Clear comment input and refresh project data
+                                            setNewComment('');
+                                            await fetchProject();
+                                            alert('Comment added successfully!');
+                                        } catch (err) {
+                                            console.error('Error adding comment:', err);
+                                            alert('Failed to add comment. Please try again.');
+                                        }
+                                    }}
+                                    className="mb-4"
+                                >
+                                    <textarea
+                                        placeholder="Add a comment..."
+                                        rows={3}
+                                        value={newComment}
+                                        onChange={(e) => setNewComment(e.target.value)}
+                                        className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:bg-white focus:outline-none transition-all resize-none mb-2"
+                                    />
+                                    <button
+                                        type="submit"
+                                        disabled={!newComment.trim()}
+                                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl font-bold text-white hover:shadow-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Add Comment
+                                    </button>
+                                </form>
+
+                                {/* Comments List */}
+                                <div className="space-y-3 max-h-64 overflow-y-auto">
+                                    <p className="text-slate-500 text-sm italic">Comments feature coming soon. Task can be marked complete using the checkbox.</p>
+                                </div>
+                            </div>
+
+                            {/* Delete Task Button */}
+                            <div className="border-t border-slate-200 pt-6 mt-6">
+                                <button
+                                    onClick={() => handleDeleteTask(selectedTask.id)}
+                                    className="w-full px-6 py-3 bg-gradient-to-r from-red-600 to-rose-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-red-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2"
+                                >
+                                    <Trash2 className="w-5 h-5" />
+                                    Delete Task
+                                </button>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -800,14 +1252,21 @@ export default function ProjectDetailPage() {
                                     <X className="w-5 h-5 text-slate-500" />
                                 </button>
                             </div>
-                            <form className="space-y-4">
+                            <form className="space-y-4" onSubmit={handleAddMember}>
                                 <div>
                                     <label className="block text-sm font-bold text-slate-700 mb-2">Select User</label>
-                                    <select className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:outline-none cursor-pointer">
-                                        <option>Select a user...</option>
-                                        <option>John Smith</option>
-                                        <option>Jane Doe</option>
-                                        <option>Robert Brown</option>
+                                    <select
+                                        value={memberFormData.userId}
+                                        onChange={(e) => setMemberFormData({ ...memberFormData, userId: e.target.value })}
+                                        className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:outline-none cursor-pointer"
+                                        required
+                                    >
+                                        <option value="">Select a User</option>
+                                        {users.map((user) => (
+                                            <option key={user.userid} value={user.userid}>
+                                                {user.username}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 <div>
@@ -815,22 +1274,40 @@ export default function ProjectDetailPage() {
                                     <input
                                         type="text"
                                         placeholder="e.g., Developer, Designer"
+                                        value={memberFormData.role}
+                                        onChange={(e) => setMemberFormData({ ...memberFormData, role: e.target.value })}
                                         className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium focus:border-blue-300 focus:bg-white focus:outline-none transition-all"
+                                        required
                                     />
                                 </div>
                                 <div className="flex gap-3 pt-4">
                                     <button
                                         type="button"
-                                        onClick={() => setShowAddMemberModal(false)}
-                                        className="flex-1 px-6 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700 transition-all"
+                                        onClick={() => {
+                                            setShowAddMemberModal(false);
+                                            setMemberFormData({ userId: '', role: '' });
+                                        }}
+                                        disabled={isSaving}
+                                        className="flex-1 px-6 py-3 bg-slate-100 hover:bg-slate-200 rounded-xl font-bold text-slate-700 transition-all disabled:opacity-50"
                                     >
                                         Cancel
                                     </button>
                                     <button
                                         type="submit"
-                                        className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl font-bold text-white hover:shadow-xl transition-all"
+                                        disabled={isSaving}
+                                        className="flex-1 px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-xl font-bold text-white hover:shadow-xl transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Add Member
+                                        {isSaving ? (
+                                            <>
+                                                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                                                Adding...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <UserPlus className="w-4 h-4" />
+                                                Add Member
+                                            </>
+                                        )}
                                     </button>
                                 </div>
                             </form>

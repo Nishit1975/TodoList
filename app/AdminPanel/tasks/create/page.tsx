@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -14,26 +14,164 @@ import {
     AlignLeft,
     CheckSquare,
     Sparkles,
+    Loader2,
 } from 'lucide-react';
+
+interface Project {
+    id: number;  // API returns 'id' not 'project_id'
+    name: string;
+}
+
+interface UserType {
+    userid: number;
+    username: string;
+}
 
 export default function CreateTaskPage() {
     const router = useRouter();
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [users, setUsers] = useState<UserType[]>([]);
+    const [currentUser, setCurrentUser] = useState<UserType | null>(null);
+    const [error, setError] = useState<string | null>(null);
+
     const [formData, setFormData] = useState({
         title: '',
         description: '',
-        priority: 'Medium',
-        status: 'Pending',
-        assignee: '',
+        priority: 'MEDIUM',
+        status: 'NOT_STARTED',
+        assigneeId: '',
         dueDate: '',
-        project: '',
+        projectId: '',
     });
 
-    const handleSubmit = (e: React.FormEvent) => {
+    // Fetch projects and users on mount
+    useEffect(() => {
+        fetchProjects();
+        fetchUsers();
+        getCurrentUser();
+    }, []);
+
+    const fetchProjects = async () => {
+        try {
+            const response = await fetch('/api/projects');
+            if (response.ok) {
+                const data = await response.json();
+                setProjects(data);
+            }
+        } catch (err) {
+            console.error('Error fetching projects:', err);
+        }
+    };
+
+    const fetchUsers = async () => {
+        try {
+            const response = await fetch('/api/users');
+            if (response.ok) {
+                const data = await response.json();
+                setUsers(data);
+            }
+        } catch (err) {
+            console.error('Error fetching users:', err);
+        }
+    };
+
+    const getCurrentUser = async () => {
+        try {
+            const response = await fetch('/api/auth/me');
+            if (response.ok) {
+                const data = await response.json();
+                // Normalize data - API returns userId, but we need userid
+                const normalizedUser = {
+                    userid: data.userId || data.userid,
+                    username: data.username,
+                };
+                setCurrentUser(normalizedUser);
+            } else {
+                // Fallback: try to get user from localStorage or first user
+                const storedUser = localStorage.getItem('user');
+                if (storedUser) {
+                    const userData = JSON.parse(storedUser);
+                    setCurrentUser({ userid: userData.userid || userData.id || userData.userId, username: userData.username });
+                } else if (users.length > 0) {
+                    // Use first user as fallback
+                    setCurrentUser({ userid: users[0].userid, username: users[0].username });
+                }
+            }
+        } catch (err) {
+            console.error('Error fetching current user:', err);
+        }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Mock submission - would normally save to database
-        console.log('Creating task:', formData);
-        // Redirect to tasks page
-        router.push('/AdminPanel/tasks');
+        setIsSubmitting(true);
+        setError(null);
+
+        try {
+            // Validate required fields
+            if (!formData.title) {
+                throw new Error('Title is required');
+            }
+
+            if (!formData.assigneeId) {
+                throw new Error('Please assign the task to a user');
+            }
+
+            // If no current user, try to get from localStorage or use first user
+            let creatorId = currentUser?.userid;
+            if (!creatorId) {
+                const storedUser = localStorage.getItem('user');
+                if (storedUser) {
+                    const userData = JSON.parse(storedUser);
+                    creatorId = userData.userid || userData.id;
+                } else if (users.length > 0) {
+                    // Fallback to first admin user
+                    const adminUser = users.find(u => u.userid === parseInt(formData.assigneeId));
+                    creatorId = adminUser?.userid || users[0].userid;
+                }
+            }
+
+            if (!creatorId) {
+                throw new Error('Unable to identify creator. Please try logging in again.');
+            }
+
+            const payload = {
+                title: formData.title,
+                description: formData.description || '',
+                status: formData.status,
+                priority: formData.priority,
+                assigneeId: parseInt(formData.assigneeId),
+                createdById: creatorId,
+                projectId: formData.projectId ? parseInt(formData.projectId) : null,
+                dueDate: formData.dueDate || null,
+            };
+
+            const response = await fetch('/api/tasks', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to create task');
+            }
+
+            const createdTask = await response.json();
+            console.log('Task created successfully:', createdTask);
+
+            // Redirect to tasks page
+            router.push('/AdminPanel/tasks');
+            router.refresh();
+        } catch (err) {
+            console.error('Error creating task:', err);
+            setError(err instanceof Error ? err.message : 'Failed to create task');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -67,6 +205,13 @@ export default function CreateTaskPage() {
                     </div>
                 </div>
 
+                {/* Error Message */}
+                {error && (
+                    <div className="mb-6 bg-red-50 border-2 border-red-200 rounded-2xl p-4">
+                        <p className="text-red-700 font-semibold text-sm">{error}</p>
+                    </div>
+                )}
+
                 {/* Form Card */}
                 <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
                     <form onSubmit={handleSubmit} className="space-y-6">
@@ -83,7 +228,8 @@ export default function CreateTaskPage() {
                                 onChange={handleChange}
                                 placeholder="Enter task title"
                                 required
-                                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all"
+                                disabled={isSubmitting}
+                                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             />
                         </div>
 
@@ -99,7 +245,8 @@ export default function CreateTaskPage() {
                                 onChange={handleChange}
                                 placeholder="Enter task description"
                                 rows={4}
-                                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all resize-none"
+                                disabled={isSubmitting}
+                                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all resize-none disabled:opacity-50 disabled:cursor-not-allowed"
                             />
                         </div>
 
@@ -115,11 +262,12 @@ export default function CreateTaskPage() {
                                     value={formData.priority}
                                     onChange={handleChange}
                                     required
-                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer"
+                                    disabled={isSubmitting}
+                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <option value="Low">Low Priority</option>
-                                    <option value="Medium">Medium Priority</option>
-                                    <option value="High">High Priority</option>
+                                    <option value="LOW">Low Priority</option>
+                                    <option value="MEDIUM">Medium Priority</option>
+                                    <option value="HIGH">High Priority</option>
                                 </select>
                             </div>
 
@@ -133,11 +281,13 @@ export default function CreateTaskPage() {
                                     value={formData.status}
                                     onChange={handleChange}
                                     required
-                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer"
+                                    disabled={isSubmitting}
+                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    <option value="Pending">Pending</option>
-                                    <option value="In Progress">In Progress</option>
-                                    <option value="Completed">Completed</option>
+                                    <option value="NOT_STARTED">Pending</option>
+                                    <option value="IN_PROGRESS">In Progress</option>
+                                    <option value="IN_REVIEW">In Review</option>
+                                    <option value="DONE">Completed</option>
                                 </select>
                             </div>
                         </div>
@@ -147,17 +297,23 @@ export default function CreateTaskPage() {
                             <div>
                                 <label className="flex items-center gap-2 text-sm font-bold text-slate-700 mb-2">
                                     <User className="w-4 h-4 text-blue-600" />
-                                    Assign To
+                                    Assign To *
                                 </label>
-                                <input
-                                    type="text"
-                                    name="assignee"
-                                    value={formData.assignee}
+                                <select
+                                    name="assigneeId"
+                                    value={formData.assigneeId}
                                     onChange={handleChange}
-                                    placeholder="Enter assignee name"
-                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all"
-                                />
-                                <p className="mt-1.5 text-xs text-slate-500 ml-1">Optional: Leave blank for unassigned</p>
+                                    required
+                                    disabled={isSubmitting}
+                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    <option value="">Select a user</option>
+                                    {users.map((user) => (
+                                        <option key={user.userid} value={user.userid}>
+                                            {user.username}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
 
                             <div>
@@ -170,7 +326,8 @@ export default function CreateTaskPage() {
                                     name="dueDate"
                                     value={formData.dueDate}
                                     onChange={handleChange}
-                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all"
+                                    disabled={isSubmitting}
+                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                 />
                             </div>
                         </div>
@@ -182,18 +339,20 @@ export default function CreateTaskPage() {
                                 Project
                             </label>
                             <select
-                                name="project"
-                                value={formData.project}
+                                name="projectId"
+                                value={formData.projectId}
                                 onChange={handleChange}
-                                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer"
+                                disabled={isSubmitting}
+                                className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <option value="">Select a project (optional)</option>
-                                <option value="Website Redesign">Website Redesign</option>
-                                <option value="Mobile App">Mobile App Development</option>
-                                <option value="Dashboard Analytics">Dashboard Analytics</option>
-                                <option value="API Integration">API Integration</option>
-                                <option value="Marketing Campaign">Marketing Campaign</option>
-                                <option value="Security Audit">Security Audit</option>
+                                {projects
+                                    .filter(project => project.id != null)
+                                    .map((project, index) => (
+                                        <option key={`project-${project.id}-${index}`} value={project.id}>
+                                            {project.name}
+                                        </option>
+                                    ))}
                             </select>
                         </div>
 
@@ -208,27 +367,23 @@ export default function CreateTaskPage() {
                             </Link>
                             <button
                                 type="submit"
-                                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-blue-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2"
+                                disabled={isSubmitting}
+                                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-blue-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
                             >
-                                <Save className="w-5 h-5" />
-                                Create Task
+                                {isSubmitting ? (
+                                    <>
+                                        <Loader2 className="w-5 h-5 animate-spin" />
+                                        Creating...
+                                    </>
+                                ) : (
+                                    <>
+                                        <Save className="w-5 h-5" />
+                                        Create Task
+                                    </>
+                                )}
                             </button>
                         </div>
                     </form>
-                </div>
-
-                {/* Help Card */}
-                <div className="mt-6 bg-gradient-to-br from-blue-50 to-purple-50 rounded-2xl p-6 border border-blue-100">
-                    <h3 className="font-bold text-slate-900 mb-2 flex items-center gap-2">
-                        <Sparkles className="w-4 h-4 text-blue-600" />
-                        Tips for Creating Tasks
-                    </h3>
-                    <ul className="space-y-1 text-sm text-slate-600">
-                        <li>• Use clear, action-oriented titles (e.g., "Design login page")</li>
-                        <li>• Set realistic due dates to keep projects on track</li>
-                        <li>• Assign tasks to team members for accountability</li>
-                        <li>• Use priority levels to organize your workflow</li>
-                    </ul>
                 </div>
             </div>
         </div>

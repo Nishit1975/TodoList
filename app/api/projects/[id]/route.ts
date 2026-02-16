@@ -22,6 +22,17 @@ export async function GET(
                 project_id: projectId,
             },
             include: {
+                project_members: {
+                    include: {
+                        users: {
+                            select: {
+                                userid: true,
+                                username: true,
+                                email: true,
+                            },
+                        },
+                    },
+                },
                 tasks: {
                     include: {
                         users_tasks_assignee_idTousers: {
@@ -53,25 +64,21 @@ export async function GET(
         const pendingTasks = project.tasks.filter((t: any) => t.status === "NOT_STARTED").length;
         const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-        // Get unique team members from tasks
-        const teamMap = new Map();
-        project.tasks.forEach((task: any) => {
-            if (task.users_tasks_assignee_idTousers) {
-                const user = task.users_tasks_assignee_idTousers;
-                if (!teamMap.has(user.userid)) {
-                    teamMap.set(user.userid, {
-                        name: user.username,
-                        avatar: user.username
-                            .split(" ")
-                            .map((n: string) => n[0])
-                            .join("")
-                            .toUpperCase()
-                            .slice(0, 2),
-                        color: `bg-${["blue", "purple", "emerald", "orange", "pink", "indigo", "teal"][user.userid % 7]}-500`,
-                        role: "Team Member",
-                    });
-                }
-            }
+        // Get team members from project_members table
+        const team = project.project_members.map((member: any) => {
+            const user = member.users;
+            return {
+                name: user.username,
+                avatar: user.username
+                    .split(" ")
+                    .map((n: string) => n[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2),
+                color: `bg-${["blue", "purple", "emerald", "orange", "pink", "indigo", "teal"][user.userid % 7]}-500`,
+                role: member.role,
+                userId: user.userid,
+            };
         });
 
         // Transform tasks data
@@ -113,7 +120,7 @@ export async function GET(
                     year: "numeric",
                 })
                 : "",
-            team: Array.from(teamMap.values()),
+            team: team,
             tasks: {
                 total: totalTasks,
                 completed: completedTasks,
