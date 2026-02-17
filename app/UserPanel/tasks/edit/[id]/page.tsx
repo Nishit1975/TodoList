@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -17,37 +17,121 @@ import {
     Trash2,
 } from 'lucide-react';
 
-// Mock user tasks data
-const mockUserTasks = [
-    { id: 1, title: "Design homepage mockup", description: "Create modern UI design", status: "Completed", priority: "High", dueDate: "2026-01-20", project: "Website Redesign" },
-    { id: 2, title: "Implement responsive navbar", description: "Mobile-first approach", status: "Completed", priority: "High", dueDate: "2026-01-22", project: "Website Redesign" },
-    { id: 3, title: "Create component library", description: "Reusable UI components", status: "In Progress", priority: "Medium", dueDate: "2026-02-05", project: "Website Redesign" },
-    { id: 4, title: "Setup authentication flow", description: "OAuth and JWT implementation", status: "In Progress", priority: "High", dueDate: "2026-02-10", project: "Mobile App" },
-    { id: 5, title: "User testing sessions", description: "Conduct usability tests", status: "Pending", priority: "Medium", dueDate: "2026-02-12", project: "Website Redesign" },
-];
+interface Project {
+    id: number;
+    name: string;
+}
 
 export default function UserEditTaskPage() {
     const params = useParams();
     const router = useRouter();
     const taskId = parseInt(params.id as string);
-    const existingTask = mockUserTasks.find(t => t.id === taskId);
 
     const [formData, setFormData] = useState({
-        title: existingTask?.title || '',
-        description: existingTask?.description || '',
-        priority: existingTask?.priority || 'Medium',
-        status: existingTask?.status || 'Pending',
-        dueDate: existingTask?.dueDate || '',
-        project: existingTask?.project || '',
+        title: '',
+        description: '',
+        priority: 'MEDIUM',
+        status: 'NOT_STARTED',
+        dueDate: '',
+        projectId: '',
     });
 
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    useEffect(() => {
+        fetchTaskData();
+        fetchProjects();
+    }, [taskId]);
+
+    const fetchTaskData = async () => {
+        try {
+            setIsLoading(true);
+            // API will validate ownership automatically
+            const response = await fetch(`/api/user/tasks/${taskId}`);
+
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('You do not have permission to edit this task');
+                }
+                throw new Error('Failed to fetch task');
+            }
+
+            const task = await response.json();
+
+            // Convert status to match form options
+            const statusMap: { [key: string]: string } = {
+                'Completed': 'DONE',
+                'In Progress': 'IN_PROGRESS',
+                'Pending': 'NOT_STARTED',
+            };
+
+            setFormData({
+                title: task.title || '',
+                description: task.description || '',
+                priority: task.priority?.toUpperCase() || 'MEDIUM',
+                status: statusMap[task.status] || task.status || 'NOT_STARTED',
+                dueDate: task.dueDateRaw ? new Date(task.dueDateRaw).toISOString().split('T')[0] : '',
+                projectId: task.projectId?.toString() || '',
+            });
+        } catch (err: any) {
+            console.error('Error fetching task:', err);
+            setError(err.message || 'Failed to load task');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const fetchProjects = async () => {
+        try {
+            const response = await fetch('/api/projects');
+            if (response.ok) {
+                const data = await response.json();
+                setProjects(data);
+            }
+        } catch (err) {
+            console.error('Error fetching projects:', err);
+        }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Mock submission - would normally update database
-        console.log('Updating task:', { id: taskId, ...formData });
-        router.push('/UserPanel/tasks');
+        setIsSaving(true);
+
+        try {
+            // API will validate ownership automatically
+            const response = await fetch(`/api/user/tasks/${taskId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: formData.title,
+                    description: formData.description,
+                    status: formData.status === 'DONE' ? 'Completed' : formData.status === 'IN_PROGRESS' ? 'In Progress' : 'Pending',
+                    priority: formData.priority,
+                    dueDate: formData.dueDate || null,
+                    projectId: formData.projectId || null,
+                }),
+            });
+
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('You do not have permission to edit this task');
+                }
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to update task');
+            }
+
+            alert('Task updated successfully!');
+            router.push('/UserPanel/tasks');
+        } catch (err: any) {
+            console.error('Error updating task:', err);
+            alert(err.message || 'Failed to update task. Please try again.');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -57,21 +141,48 @@ export default function UserEditTaskPage() {
         });
     };
 
-    const handleDelete = () => {
-        // Mock deletion - would normally call API
-        console.log('Deleting task:', taskId);
-        router.push('/UserPanel/tasks');
+    const handleDelete = async () => {
+        try {
+            // API will validate ownership automatically
+            const response = await fetch(`/api/user/tasks/${taskId}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                if (response.status === 403) {
+                    throw new Error('You do not have permission to delete this task');
+                }
+                throw new Error('Failed to delete task');
+            }
+
+            alert('Task deleted successfully!');
+            router.push('/UserPanel/tasks');
+        } catch (err: any) {
+            console.error('Error deleting task:', err);
+            alert(err.message || 'Failed to delete task. Please try again.');
+        }
     };
 
-    if (!existingTask) {
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="w-16 h-16 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-slate-600 font-medium">Loading task...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 flex items-center justify-center p-8">
                 <div className="text-center">
                     <div className="w-20 h-20 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                         <AlertCircle className="w-10 h-10 text-slate-400" />
                     </div>
-                    <h2 className="text-2xl font-black text-slate-900 mb-2">Task Not Found</h2>
-                    <p className="text-slate-500 mb-6">The task you're trying to edit doesn't exist.</p>
+                    <h2 className="text-2xl font-black text-slate-900 mb-2">Cannot Edit Task</h2>
+                    <p className="text-slate-500 mb-6">{error}</p>
                     <Link
                         href="/UserPanel/tasks"
                         className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-xl transition-all inline-flex items-center gap-2"
@@ -85,7 +196,7 @@ export default function UserEditTaskPage() {
     }
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 p-8">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-8">
             <div className="max-w-4xl mx-auto">
                 {/* Header */}
                 <div className="mb-8">
@@ -97,32 +208,28 @@ export default function UserEditTaskPage() {
                         Back to My Tasks
                     </Link>
 
-                    <div className="bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-[2rem] p-8 shadow-2xl shadow-purple-500/20 relative overflow-hidden mb-6">
-                        <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl"></div>
-                        <div className="absolute bottom-0 left-0 w-48 h-48 bg-white/10 rounded-full blur-3xl"></div>
-                        <div className="relative z-10 flex items-center justify-between">
-                            <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30">
-                                    <Edit className="w-6 h-6 text-white" />
-                                </div>
-                                <div>
-                                    <h1 className="text-4xl font-black text-white tracking-tight">Edit Task</h1>
-                                    <p className="text-white/90 font-medium mt-1">Update your task details</p>
-                                </div>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-4">
+                            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center shadow-xl">
+                                <Edit className="w-7 h-7 text-white" />
                             </div>
-                            <button
-                                onClick={() => setShowDeleteConfirm(true)}
-                                className="px-5 py-3 bg-white/20 backdrop-blur-md hover:bg-white/30 rounded-xl font-bold text-white transition-all flex items-center gap-2 border border-white/30"
-                            >
-                                <Trash2 className="w-4 h-4" />
-                                Delete
-                            </button>
+                            <div>
+                                <h1 className="text-4xl font-black text-slate-900 tracking-tight">Edit Task</h1>
+                                <p className="text-slate-500 font-medium mt-1">Update your task details</p>
+                            </div>
                         </div>
+                        <button
+                            onClick={() => setShowDeleteConfirm(true)}
+                            className="px-5 py-3 bg-red-50 hover:bg-red-100 rounded-xl font-bold text-red-600 transition-all flex items-center gap-2 border border-red-200"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Delete
+                        </button>
                     </div>
                 </div>
 
                 {/* Form Card */}
-                <div className="bg-white/80 backdrop-blur-sm rounded-3xl p-8 shadow-lg border border-white">
+                <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-100">
                     <form onSubmit={handleSubmit} className="space-y-6">
                         {/* Task Title */}
                         <div>
@@ -171,9 +278,9 @@ export default function UserEditTaskPage() {
                                     required
                                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-purple-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-purple-100 transition-all cursor-pointer"
                                 >
-                                    <option value="Low">Low Priority</option>
-                                    <option value="Medium">Medium Priority</option>
-                                    <option value="High">High Priority</option>
+                                    <option value="LOW">Low Priority</option>
+                                    <option value="MEDIUM">Medium Priority</option>
+                                    <option value="HIGH">High Priority</option>
                                 </select>
                             </div>
 
@@ -189,9 +296,9 @@ export default function UserEditTaskPage() {
                                     required
                                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-purple-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-purple-100 transition-all cursor-pointer"
                                 >
-                                    <option value="Pending">Pending</option>
-                                    <option value="In Progress">In Progress</option>
-                                    <option value="Completed">Completed</option>
+                                    <option value="NOT_STARTED">Pending</option>
+                                    <option value="IN_PROGRESS">In Progress</option>
+                                    <option value="DONE">Completed</option>
                                 </select>
                             </div>
                         </div>
@@ -218,15 +325,17 @@ export default function UserEditTaskPage() {
                                 Project
                             </label>
                             <select
-                                name="project"
-                                value={formData.project}
+                                name="projectId"
+                                value={formData.projectId}
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-purple-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-purple-100 transition-all cursor-pointer"
                             >
                                 <option value="">Select a project (optional)</option>
-                                <option value="Website Redesign">Website Redesign</option>
-                                <option value="Mobile App">Mobile App Development</option>
-                                <option value="Dashboard Analytics">Dashboard Analytics</option>
+                                {projects.map(project => (
+                                    <option key={project.id} value={project.id}>
+                                        {project.name}
+                                    </option>
+                                ))}
                             </select>
                         </div>
 
@@ -241,10 +350,11 @@ export default function UserEditTaskPage() {
                             </Link>
                             <button
                                 type="submit"
-                                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-purple-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2"
+                                disabled={isSaving}
+                                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-purple-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Save className="w-5 h-5" />
-                                Save Changes
+                                {isSaving ? 'Saving...' : 'Save Changes'}
                             </button>
                         </div>
                     </form>
@@ -259,7 +369,7 @@ export default function UserEditTaskPage() {
                             </div>
                             <h2 className="text-2xl font-black text-slate-900 text-center mb-2">Delete Task?</h2>
                             <p className="text-slate-600 text-center mb-6">
-                                Are you sure you want to delete "{existingTask.title}"? This action cannot be undone.
+                                Are you sure you want to delete "{formData.title}"? This action cannot be undone.
                             </p>
                             <div className="flex gap-3">
                                 <button

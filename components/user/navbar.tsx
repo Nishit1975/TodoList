@@ -14,6 +14,7 @@ import {
     CheckSquare
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { logout } from "@/components/actions/logout";
 
 export function UserNavbar() {
     const { user, loading } = useAuth();
@@ -98,13 +99,21 @@ export function UserNavbar() {
                 </div>
 
                 {/* Logout */}
-                <Link
-                    href="/"
+                <button
+                    onClick={async () => {
+                        // Clear client-side storage first
+                        if (typeof window !== 'undefined') {
+                            localStorage.clear();
+                            sessionStorage.clear();
+                        }
+                        // Call server action to clear cookie
+                        await logout();
+                    }}
                     className="flex items-center gap-2 px-3 py-2 text-slate-300 hover:text-red-400 hover:bg-slate-700/50 rounded-lg transition-colors"
                 >
                     <LogOut className="w-4 h-4" />
                     <span className="hidden xl:inline text-sm font-medium">Logout</span>
-                </Link>
+                </button>
             </div>
 
         </header>

@@ -131,7 +131,7 @@ export async function GET(
                         ? "Completed"
                         : task.status === "IN_PROGRESS"
                             ? "In Progress"
-                            : task.status === "REVIEW"
+                            : task.status === "IN_REVIEW"
                                 ? "Review"
                                 : "Pending",
                 priority: task.priority || "Medium",

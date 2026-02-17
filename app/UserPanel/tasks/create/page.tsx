@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -16,22 +16,73 @@ import {
     Plus,
 } from 'lucide-react';
 
+interface Project {
+    id: number;
+    name: string;
+}
+
 export default function UserCreateTaskPage() {
     const router = useRouter();
     const [formData, setFormData] = useState({
         title: '',
         description: '',
-        priority: 'Medium',
-        status: 'Pending',
+        priority: 'MEDIUM',
+        status: 'NOT_STARTED',
         dueDate: '',
-        project: '',
+        projectId: '',
     });
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
+    useEffect(() => {
+        fetchProjects();
+    }, []);
+
+    const fetchProjects = async () => {
+        try {
+            const response = await fetch('/api/projects');
+            if (response.ok) {
+                const data = await response.json();
+                setProjects(data);
+            }
+        } catch (err) {
+            console.error('Error fetching projects:', err);
+        }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Mock submission - would normally save to database
-        console.log('Creating task:', formData);
-        router.push('/UserPanel/tasks');
+        setIsSubmitting(true);
+
+        try {
+            // POST to user tasks API - userId is extracted from JWT automatically
+            const response = await fetch('/api/user/tasks', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: formData.title,
+                    description: formData.description,
+                    status: formData.status === 'NOT_STARTED' ? 'Pending' : formData.status === 'IN_PROGRESS' ? 'In Progress' : 'Completed',
+                    priority: formData.priority,
+                    dueDate: formData.dueDate || null,
+                    projectId: formData.projectId || null,
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to create task');
+            }
+
+            alert('Task created successfully!');
+            router.push('/UserPanel/tasks');
+        } catch (err: any) {
+            console.error('Error creating task:', err);
+            alert(err.message || 'Failed to create task. Please try again.');
+        } finally {
+            setIsSubmitting(false);
+        }
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -119,9 +170,9 @@ export default function UserCreateTaskPage() {
                                     required
                                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-purple-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-purple-100 transition-all cursor-pointer"
                                 >
-                                    <option value="Low">Low Priority</option>
-                                    <option value="Medium">Medium Priority</option>
-                                    <option value="High">High Priority</option>
+                                    <option value="LOW">Low Priority</option>
+                                    <option value="MEDIUM">Medium Priority</option>
+                                    <option value="HIGH">High Priority</option>
                                 </select>
                             </div>
 
@@ -137,9 +188,9 @@ export default function UserCreateTaskPage() {
                                     required
                                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-purple-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-purple-100 transition-all cursor-pointer"
                                 >
-                                    <option value="Pending">Pending</option>
-                                    <option value="In Progress">In Progress</option>
-                                    <option value="Completed">Completed</option>
+                                    <option value="NOT_STARTED">Pending</option>
+                                    <option value="IN_PROGRESS">In Progress</option>
+                                    <option value="DONE">Completed</option>
                                 </select>
                             </div>
                         </div>
@@ -166,15 +217,17 @@ export default function UserCreateTaskPage() {
                                 Project
                             </label>
                             <select
-                                name="project"
-                                value={formData.project}
+                                name="projectId"
+                                value={formData.projectId}
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-purple-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-purple-100 transition-all cursor-pointer"
                             >
                                 <option value="">Select a project (optional)</option>
-                                <option value="Website Redesign">Website Redesign</option>
-                                <option value="Mobile App">Mobile App Development</option>
-                                <option value="Dashboard Analytics">Dashboard Analytics</option>
+                                {projects.map(project => (
+                                    <option key={project.id} value={project.id}>
+                                        {project.name}
+                                    </option>
+                                ))}
                             </select>
                         </div>
 
@@ -189,10 +242,11 @@ export default function UserCreateTaskPage() {
                             </Link>
                             <button
                                 type="submit"
-                                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-purple-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2"
+                                disabled={isSubmitting}
+                                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-purple-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Save className="w-5 h-5" />
-                                Create Task
+                                {isSubmitting ? 'Creating...' : 'Create Task'}
                             </button>
                         </div>
                     </form>

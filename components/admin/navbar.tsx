@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSearch } from "@/contexts/SearchContext";
+import { logout } from "@/components/actions/logout";
 
 // Interface for contact messages (used as notifications)
 interface ContactMessage {
@@ -261,13 +262,21 @@ export function AdminNavbar() {
         </button>
 
         {/* Logout */}
-        <Link
-          href="/"
+        <button
+          onClick={async () => {
+            // Clear client-side storage first
+            if (typeof window !== 'undefined') {
+              localStorage.clear();
+              sessionStorage.clear();
+            }
+            // Call server action to clear cookie
+            await logout();
+          }}
           className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-300 group text-slate-400 hover:bg-rose-900/20 hover:text-rose-400"
         >
           <LogOut className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
           <span className="hidden xl:inline">Logout</span>
-        </Link>
+        </button>
       </div>
 
     </header>

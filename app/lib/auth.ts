@@ -68,7 +68,19 @@ export async function getAuthUser(): Promise<AuthUser | null> {
  */
 export async function clearAuthCookie(): Promise<void> {
     const cookieStore = await cookies();
+
+    // Delete with multiple path configurations to ensure it's gone
     cookieStore.delete(AUTH_COOKIE_NAME);
+
+    // Also try to delete with explicit path
+    cookieStore.set(AUTH_COOKIE_NAME, "", {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: 0,
+        path: "/",
+        expires: new Date(0),
+    });
 }
 
 /**

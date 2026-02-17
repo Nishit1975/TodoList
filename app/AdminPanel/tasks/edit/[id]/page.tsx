@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import {
@@ -18,38 +18,135 @@ import {
     Trash2,
 } from 'lucide-react';
 
-// Mock task data
-const mockTasksData = [
-    { id: 1, title: "Design homepage mockup", description: "Create modern UI design", status: "Completed", priority: "High", assignee: "Sarah Chen", dueDate: "2026-01-20", project: "Website Redesign" },
-    { id: 2, title: "Implement responsive navbar", description: "Mobile-first approach", status: "Completed", priority: "High", assignee: "Mike Johnson", dueDate: "2026-01-22", project: "Website Redesign" },
-    { id: 3, title: "Create component library", description: "Reusable UI components", status: "In Progress", priority: "Medium", assignee: "Emma Davis", dueDate: "2026-02-05", project: "Website Redesign" },
-    { id: 4, title: "Setup authentication flow", description: "OAuth and JWT implementation", status: "In Progress", priority: "High", assignee: "Alex Wilson", dueDate: "2026-02-10", project: "Mobile App" },
-    { id: 5, title: "Write API documentation", description: "Complete REST API docs", status: "Pending", priority: "Low", assignee: "Mike Johnson", dueDate: "2026-02-28", project: "Dashboard Analytics" },
-];
+interface User {
+    userid: number;
+    username: string;
+}
+
+interface Project {
+    id: number;
+    name: string;
+}
 
 export default function EditTaskPage() {
     const params = useParams();
     const router = useRouter();
     const taskId = parseInt(params.id as string);
-    const existingTask = mockTasksData.find(t => t.id === taskId);
 
     const [formData, setFormData] = useState({
-        title: existingTask?.title || '',
-        description: existingTask?.description || '',
-        priority: existingTask?.priority || 'Medium',
-        status: existingTask?.status || 'Pending',
-        assignee: existingTask?.assignee || '',
-        dueDate: existingTask?.dueDate || '',
-        project: existingTask?.project || '',
+        title: '',
+        description: '',
+        priority: 'MEDIUM',
+        status: 'NOT_STARTED',
+        assigneeId: '',
+        dueDate: '',
+        projectId: '',
     });
 
+    const [users, setUsers] = useState<User[]>([]);
+    const [projects, setProjects] = useState<Project[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
+    const [isSaving, setIsSaving] = useState(false);
+    const [error, setError] = useState<string | null>(null);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-    const handleSubmit = (e: React.FormEvent) => {
+    useEffect(() => {
+        fetchTaskData();
+        fetchUsers();
+        fetchProjects();
+    }, [taskId]);
+
+    const fetchTaskData = async () => {
+        try {
+            setIsLoading(true);
+            const response = await fetch(`/api/tasks/${taskId}`);
+
+            if (!response.ok) {
+                throw new Error('Failed to fetch task');
+            }
+
+            const task = await response.json();
+
+            // Convert status and priority to match form options
+            const statusMap: { [key: string]: string } = {
+                'Completed': 'DONE',
+                'In Progress': 'IN_PROGRESS',
+                'Pending': 'NOT_STARTED',
+            };
+
+            setFormData({
+                title: task.title || '',
+                description: task.description || '',
+                priority: task.priority || 'MEDIUM',
+                status: statusMap[task.status] || task.status || 'NOT_STARTED',
+                assigneeId: task.assigneeId?.toString() || '',
+                dueDate: task.dueDateRaw ? new Date(task.dueDateRaw).toISOString().split('T')[0] : '',
+                projectId: task.projectId?.toString() || '',
+            });
+        } catch (err: any) {
+            console.error('Error fetching task:', err);
+            setError(err.message || 'Failed to load task');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const fetchUsers = async () => {
+        try {
+            const response = await fetch('/api/users');
+            if (response.ok) {
+                const data = await response.json();
+                setUsers(data);
+            }
+        } catch (err) {
+            console.error('Error fetching users:', err);
+        }
+    };
+
+    const fetchProjects = async () => {
+        try {
+            const response = await fetch('/api/projects');
+            if (response.ok) {
+                const data = await response.json();
+                setProjects(data);
+            }
+        } catch (err) {
+            console.error('Error fetching projects:', err);
+        }
+    };
+
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        // Mock submission - would normally update database
-        console.log('Updating task:', { id: taskId, ...formData });
-        router.push('/AdminPanel/tasks');
+        setIsSaving(true);
+
+        try {
+            const response = await fetch(`/api/tasks/${taskId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: formData.title,
+                    description: formData.description,
+                    status: formData.status,
+                    priority: formData.priority,
+                    assigneeId: formData.assigneeId ? parseInt(formData.assigneeId) : null,
+                    projectId: formData.projectId ? parseInt(formData.projectId) : null,
+                    dueDate: formData.dueDate || null,
+                }),
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Failed to update task');
+            }
+
+            alert('Task updated successfully!');
+            router.push('/AdminPanel/tasks');
+        } catch (err: any) {
+            console.error('Error updating task:', err);
+            alert(err.message || 'Failed to update task. Please try again.');
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -59,13 +156,36 @@ export default function EditTaskPage() {
         });
     };
 
-    const handleDelete = () => {
-        // Mock deletion - would normally call API
-        console.log('Deleting task:', taskId);
-        router.push('/AdminPanel/tasks');
+    const handleDelete = async () => {
+        try {
+            const response = await fetch(`/api/tasks/${taskId}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete task');
+            }
+
+            alert('Task deleted successfully!');
+            router.push('/AdminPanel/tasks');
+        } catch (err) {
+            console.error('Error deleting task:', err);
+            alert('Failed to delete task. Please try again.');
+        }
     };
 
-    if (!existingTask) {
+    if (isLoading) {
+        return (
+            <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center">
+                <div className="text-center">
+                    <div className="w-16 h-16 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-slate-600 font-medium">Loading task...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center p-8">
                 <div className="text-center">
@@ -73,7 +193,7 @@ export default function EditTaskPage() {
                         <AlertCircle className="w-10 h-10 text-slate-400" />
                     </div>
                     <h2 className="text-2xl font-black text-slate-900 mb-2">Task Not Found</h2>
-                    <p className="text-slate-500 mb-6">The task you're trying to edit doesn't exist.</p>
+                    <p className="text-slate-500 mb-6">{error}</p>
                     <Link
                         href="/AdminPanel/tasks"
                         className="px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-xl transition-all inline-flex items-center gap-2"
@@ -169,9 +289,9 @@ export default function EditTaskPage() {
                                     required
                                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer"
                                 >
-                                    <option value="Low">Low Priority</option>
-                                    <option value="Medium">Medium Priority</option>
-                                    <option value="High">High Priority</option>
+                                    <option value="LOW">Low Priority</option>
+                                    <option value="MEDIUM">Medium Priority</option>
+                                    <option value="HIGH">High Priority</option>
                                 </select>
                             </div>
 
@@ -187,9 +307,9 @@ export default function EditTaskPage() {
                                     required
                                     className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer"
                                 >
-                                    <option value="Pending">Pending</option>
-                                    <option value="In Progress">In Progress</option>
-                                    <option value="Completed">Completed</option>
+                                    <option value="NOT_STARTED">Pending</option>
+                                    <option value="IN_PROGRESS">In Progress</option>
+                                    <option value="DONE">Completed</option>
                                 </select>
                             </div>
                         </div>
@@ -201,14 +321,19 @@ export default function EditTaskPage() {
                                     <User className="w-4 h-4 text-blue-600" />
                                     Assign To
                                 </label>
-                                <input
-                                    type="text"
-                                    name="assignee"
-                                    value={formData.assignee}
+                                <select
+                                    name="assigneeId"
+                                    value={formData.assigneeId}
                                     onChange={handleChange}
-                                    placeholder="Enter assignee name"
-                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all"
-                                />
+                                    className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer"
+                                >
+                                    <option value="">Select user (optional)</option>
+                                    {users.map(user => (
+                                        <option key={user.userid} value={user.userid}>
+                                            {user.username}
+                                        </option>
+                                    ))}
+                                </select>
                             </div>
 
                             <div>
@@ -233,18 +358,17 @@ export default function EditTaskPage() {
                                 Project
                             </label>
                             <select
-                                name="project"
-                                value={formData.project}
+                                name="projectId"
+                                value={formData.projectId}
                                 onChange={handleChange}
                                 className="w-full px-4 py-3 bg-slate-50 border-2 border-slate-100 rounded-xl font-medium text-slate-900 focus:border-blue-300 focus:bg-white focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all cursor-pointer"
                             >
                                 <option value="">Select a project (optional)</option>
-                                <option value="Website Redesign">Website Redesign</option>
-                                <option value="Mobile App">Mobile App Development</option>
-                                <option value="Dashboard Analytics">Dashboard Analytics</option>
-                                <option value="API Integration">API Integration</option>
-                                <option value="Marketing Campaign">Marketing Campaign</option>
-                                <option value="Security Audit">Security Audit</option>
+                                {projects.map(project => (
+                                    <option key={project.id} value={project.id}>
+                                        {project.name}
+                                    </option>
+                                ))}
                             </select>
                         </div>
 
@@ -259,10 +383,11 @@ export default function EditTaskPage() {
                             </Link>
                             <button
                                 type="submit"
-                                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-blue-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2"
+                                disabled={isSaving}
+                                className="flex-1 px-6 py-3.5 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl font-bold text-white hover:shadow-2xl hover:shadow-blue-300 hover:scale-105 transition-all duration-300 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 <Save className="w-5 h-5" />
-                                Save Changes
+                                {isSaving ? 'Saving...' : 'Save Changes'}
                             </button>
                         </div>
                     </form>
@@ -277,7 +402,7 @@ export default function EditTaskPage() {
                             </div>
                             <h2 className="text-2xl font-black text-slate-900 text-center mb-2">Delete Task?</h2>
                             <p className="text-slate-600 text-center mb-6">
-                                Are you sure you want to delete "{existingTask.title}"? This action cannot be undone.
+                                Are you sure you want to delete "{formData.title}"? This action cannot be undone.
                             </p>
                             <div className="flex gap-3">
                                 <button

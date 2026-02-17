@@ -15,6 +15,8 @@ import {
     CheckSquare,
     Circle,
     AlertCircle,
+    Edit,
+    Trash2,
 } from 'lucide-react';
 
 // Task type based on API response
@@ -141,6 +143,29 @@ export default function AdminTasksPage() {
             // Revert on error
             setTasks(tasks);
             alert('Failed to update task status. Please try again.');
+        }
+    };
+
+    const handleDeleteTask = async (taskId: number, taskTitle: string) => {
+        if (!confirm(`Are you sure you want to delete "${taskTitle}"? This action cannot be undone.`)) {
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/tasks/${taskId}`, {
+                method: 'DELETE',
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to delete task');
+            }
+
+            // Refresh tasks list
+            await fetchTasks();
+            alert('Task deleted successfully!');
+        } catch (err) {
+            console.error('Error deleting task:', err);
+            alert('Failed to delete task. Please try again.');
         }
     };
 
@@ -317,12 +342,25 @@ export default function AdminTasksPage() {
                                                 <h3 className="font-black text-slate-900 text-sm leading-tight flex-1 pr-2">
                                                     {task.title}
                                                 </h3>
-                                                <Link
-                                                    href={`/AdminPanel/tasks/${task.id}`}
-                                                    className="p-1 hover:bg-slate-100 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
-                                                >
-                                                    <MoreVertical className="w-4 h-4 text-slate-400" />
-                                                </Link>
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <Link
+                                                        href={`/AdminPanel/tasks/edit/${task.id}`}
+                                                        className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors group/edit"
+                                                        title="Edit task"
+                                                    >
+                                                        <Edit className="w-4 h-4 text-slate-400 group-hover/edit:text-blue-600 transition-colors" />
+                                                    </Link>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleDeleteTask(task.id, task.title);
+                                                        }}
+                                                        className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group/delete"
+                                                        title="Delete task"
+                                                    >
+                                                        <Trash2 className="w-4 h-4 text-slate-400 group-hover/delete:text-red-600 transition-colors" />
+                                                    </button>
+                                                </div>
                                             </div>
 
                                             {/* Task Description */}

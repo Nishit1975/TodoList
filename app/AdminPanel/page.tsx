@@ -21,8 +21,11 @@ import {
   Award
 } from 'lucide-react';
 import { DashboardSearchResults } from '@/components/admin/DashboardSearchResults';
+import { useAdminProtection } from '@/hooks/useProtection';
 
 export default function AdminDashboard() {
+  // Client-side authentication protection
+  useAdminProtection();
   // Mock data - replace with real data from API
   const stats = [
     {
