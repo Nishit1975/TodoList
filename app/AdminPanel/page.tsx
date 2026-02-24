@@ -1,6 +1,6 @@
 "use client";
 
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
   LayoutGrid,
@@ -22,16 +22,54 @@ import {
 } from 'lucide-react';
 import { DashboardSearchResults } from '@/components/admin/DashboardSearchResults';
 import { useAdminProtection } from '@/hooks/useProtection';
+import type { DashboardData } from '@/app/lib/dashboard-data';
 
 export default function AdminDashboard() {
   // Client-side authentication protection
   useAdminProtection();
-  // Mock data - replace with real data from API
+
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/dashboard/stats", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: DashboardData) => {
+        setDashboardData(data);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const handleExport = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const res = await fetch("/api/export/dashboard", { cache: "no-store" });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "dashboard-report.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Export error:", err);
+    } finally {
+      setExporting(false);
+    }
+  }, [exporting]);
+
   const stats = [
     {
       title: "Total Tasks",
-      value: "24",
-      change: "+12%",
+      value: loading ? "—" : String(dashboardData?.stats.totalTasks ?? 0),
+      change: loading ? "—" : `${dashboardData?.stats.totalTasks ?? 0} total`,
       trend: "up",
       icon: CheckSquare,
       color: "from-teal-500 to-cyan-600",
@@ -40,8 +78,8 @@ export default function AdminDashboard() {
     },
     {
       title: "In Progress",
-      value: "156",
-      change: "+8%",
+      value: loading ? "—" : String(dashboardData?.stats.inProgressTasks ?? 0),
+      change: loading ? "—" : `${dashboardData?.stats.inProgressTasks ?? 0} active`,
       trend: "up",
       icon: Clock,
       color: "from-amber-500 to-orange-600",
@@ -50,8 +88,8 @@ export default function AdminDashboard() {
     },
     {
       title: "Collaborators",
-      value: "48",
-      change: "+3",
+      value: loading ? "—" : String(dashboardData?.stats.totalUsers ?? 0),
+      change: loading ? "—" : `${dashboardData?.stats.totalUsers ?? 0} users`,
       trend: "up",
       icon: Users,
       color: "from-violet-500 to-purple-600",
@@ -60,8 +98,8 @@ export default function AdminDashboard() {
     },
     {
       title: "Completion Rate",
-      value: "87%",
-      change: "+5%",
+      value: loading ? "—" : `${dashboardData?.stats.completionRate ?? 0}%`,
+      change: loading ? "—" : `${dashboardData?.stats.completedTasks ?? 0} done`,
       trend: "up",
       icon: Target,
       color: "from-emerald-500 to-green-600",
@@ -70,19 +108,37 @@ export default function AdminDashboard() {
     }
   ];
 
-  const recentProjects = [
-    { name: "Website Redesign", progress: 75, status: "In Progress", team: 8, dueDate: "Mar 15" },
-    { name: "Mobile App", progress: 45, status: "In Progress", team: 6, dueDate: "Apr 20" },
-    { name: "Dashboard Analytics", progress: 90, status: "Review", team: 4, dueDate: "Feb 28" },
-    { name: "API Integration", progress: 30, status: "Planning", team: 5, dueDate: "May 10" },
+  const recentProjects = dashboardData?.activeProjects ?? [
+    { name: "Loading...", progress: 0, status: "—", team: 0, dueDate: "—" },
+    { name: "Loading...", progress: 0, status: "—", team: 0, dueDate: "—" },
+    { name: "Loading...", progress: 0, status: "—", team: 0, dueDate: "—" },
+    { name: "Loading...", progress: 0, status: "—", team: 0, dueDate: "—" },
   ];
 
-  const recentActivities = [
-    { user: "Sarah Chen", action: "completed task", item: "User Authentication", time: "5 min ago", icon: CheckCircle2, color: "text-green-500" },
-    { user: "Mike Johnson", action: "created project", item: "E-commerce Platform", time: "1 hour ago", icon: Plus, color: "text-blue-500" },
-    { user: "Emma Davis", action: "updated", item: "Dashboard UI", time: "2 hours ago", icon: Activity, color: "text-purple-500" },
-    { user: "Alex Wilson", action: "commented on", item: "API Documentation", time: "3 hours ago", icon: AlertCircle, color: "text-orange-500" },
-    { user: "Lisa Anderson", action: "completed", item: "Design Review", time: "5 hours ago", icon: CheckCircle2, color: "text-green-500" },
+  const recentActivities = (dashboardData?.recentActivities ?? []).map((activity) => {
+    const iconMap = {
+      completed: { icon: CheckCircle2, color: "text-green-500" },
+      created: { icon: Plus, color: "text-blue-500" },
+      updated: { icon: Activity, color: "text-purple-500" },
+    };
+    const { icon, color } = iconMap[activity.type] ?? iconMap.updated;
+    return { ...activity, icon, color };
+  });
+
+  const fallbackActivities = loading
+    ? [
+      { user: "Loading...", action: "", item: "—", time: "—", icon: Activity, color: "text-purple-500" },
+      { user: "Loading...", action: "", item: "—", time: "—", icon: Activity, color: "text-purple-500" },
+      { user: "Loading...", action: "", item: "—", time: "—", icon: Activity, color: "text-purple-500" },
+    ]
+    : recentActivities;
+
+  const activityFeed = recentActivities.length > 0 ? recentActivities : fallbackActivities;
+
+  const topPerformers = dashboardData?.topContributors ?? [
+    { name: "Loading...", tasks: 0, badge: "🏆", score: 0 },
+    { name: "Loading...", tasks: 0, badge: "⭐", score: 0 },
+    { name: "Loading...", tasks: 0, badge: "🎯", score: 0 },
   ];
 
   const quickActions = [
@@ -90,12 +146,6 @@ export default function AdminDashboard() {
     { name: "Add Note", icon: Folder, color: "from-amber-500 to-orange-600", href: "/AdminPanel/tasks" },
     { name: "Invite Team", icon: Users, color: "from-violet-500 to-purple-600", href: "/AdminPanel/users" },
     { name: "Analytics", icon: TrendingUp, color: "from-emerald-500 to-green-600", href: "/AdminPanel/reports" },
-  ];
-
-  const topPerformers = [
-    { name: "Sarah Chen", tasks: 24, badge: "🏆", score: 98 },
-    { name: "Mike Johnson", tasks: 21, badge: "⭐", score: 95 },
-    { name: "Emma Davis", tasks: 19, badge: "🎯", score: 92 },
   ];
 
   return (
@@ -122,9 +172,13 @@ export default function AdminDashboard() {
               </p>
             </div>
             <div className="flex gap-3">
-              <button className="px-6 py-3 bg-white/20 backdrop-blur-md border border-white/30 rounded-xl font-bold text-white hover:bg-white/30 transition-all duration-300 flex items-center gap-2">
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="px-6 py-3 bg-white/20 backdrop-blur-md border border-white/30 rounded-xl font-bold text-white hover:bg-white/30 transition-all duration-300 flex items-center gap-2"
+              >
                 <Activity className="w-4 h-4" />
-                Export
+                {exporting ? "Exporting..." : "Export"}
               </button>
               <button className="px-6 py-3 bg-white rounded-xl font-bold text-purple-600 hover:scale-105 hover:shadow-xl transition-all duration-300 flex items-center gap-2">
                 <Plus className="w-4 h-4" />
@@ -286,7 +340,7 @@ export default function AdminDashboard() {
               <h2 className="text-lg font-black text-slate-900">Activity</h2>
             </div>
             <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2">
-              {recentActivities.map((activity, index) => (
+              {activityFeed.map((activity, index) => (
                 <div
                   key={index}
                   className="p-3 rounded-xl hover:bg-gradient-to-r hover:from-slate-50 hover:to-purple-50 transition-all duration-300 border border-transparent hover:border-purple-200"

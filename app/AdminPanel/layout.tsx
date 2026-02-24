@@ -3,16 +3,12 @@ import { AdminSidebar } from '@/components/admin/sidebar';
 import { AdminNavbar } from '@/components/admin/navbar';
 import { requireAdmin } from '@/app/lib/auth';
 import { SearchProvider } from '@/contexts/SearchContext';
-import { headers } from 'next/headers';
 
 export default async function AdminLayout({
     children,
 }: {
     children: React.ReactNode;
 }) {
-    // Set no-cache headers to prevent browser caching
-    const headersList = await headers();
-
     await requireAdmin();
 
     return (

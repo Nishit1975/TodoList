@@ -2,104 +2,77 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { fetchAuthUser, clearAuthCache } from "@/hooks/useAuth";
 
 /**
- * Client-side hook to ensure admin authentication on protected pages
- * This provides an additional layer of security beyond server-side checks
- * and handles edge cases like browser back button after logout
+ * Client-side hook to ensure admin authentication on protected pages.
+ * Reuses the module-level auth cache from useAuth — no duplicate /api/auth/me calls.
  */
 export function useAdminProtection() {
     const router = useRouter();
 
     useEffect(() => {
-        // Check authentication on mount and visibility change
+        let cancelled = false;
+
         const checkAuth = async () => {
-            try {
-                const response = await fetch("/api/auth/me", {
-                    cache: "no-store",
-                    headers: {
-                        "Cache-Control": "no-cache",
-                        "Pragma": "no-cache",
-                    },
-                });
+            const user = await fetchAuthUser();
+            if (cancelled) return;
 
-                if (!response.ok) {
-                    // Not authenticated - clear everything and redirect
-                    if (typeof window !== "undefined") {
-                        localStorage.clear();
-                        sessionStorage.clear();
-                    }
-                    router.push("/auth/login");
-                    return;
-                }
-
-                const user = await response.json();
-
-                // Verify admin role
-                if (user.role !== "admin") {
-                    // Not an admin - clear and redirect
-                    if (typeof window !== "undefined") {
-                        localStorage.clear();
-                        sessionStorage.clear();
-                    }
-                    router.push("/auth/login?error=unauthorized");
-                }
-            } catch (error) {
-                // Network error or other issue - redirect to login
-                console.error("Authentication check failed:", error);
+            if (!user) {
+                clearAuthCache();
                 if (typeof window !== "undefined") {
                     localStorage.clear();
                     sessionStorage.clear();
                 }
                 router.push("/auth/login");
+                return;
+            }
+
+            if (user.role !== "admin") {
+                clearAuthCache();
+                if (typeof window !== "undefined") {
+                    localStorage.clear();
+                    sessionStorage.clear();
+                }
+                router.push("/auth/login?error=unauthorized");
             }
         };
 
-        // Initial check
         checkAuth();
 
-        // Re-check when page becomes visible (handles browser back button)
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
+                // Clear cache on tab-focus so re-check hits the server
+                clearAuthCache();
                 checkAuth();
             }
         };
 
         document.addEventListener("visibilitychange", handleVisibilityChange);
-
-        // Cleanup
         return () => {
+            cancelled = true;
             document.removeEventListener("visibilitychange", handleVisibilityChange);
         };
-    }, [router]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Empty deps — router is stable in Next 15.
 }
 
 /**
- * Client-side hook to ensure user authentication on protected pages
+ * Client-side hook to ensure user authentication on protected pages.
+ * Reuses the module-level auth cache from useAuth.
  */
 export function useUserProtection() {
     const router = useRouter();
 
     useEffect(() => {
-        const checkAuth = async () => {
-            try {
-                const response = await fetch("/api/auth/me", {
-                    cache: "no-store",
-                    headers: {
-                        "Cache-Control": "no-cache",
-                        "Pragma": "no-cache",
-                    },
-                });
+        let cancelled = false;
 
-                if (!response.ok) {
-                    if (typeof window !== "undefined") {
-                        localStorage.clear();
-                        sessionStorage.clear();
-                    }
-                    router.push("/auth/login");
-                }
-            } catch (error) {
-                console.error("Authentication check failed:", error);
+        const checkAuth = async () => {
+            const user = await fetchAuthUser();
+            if (cancelled) return;
+
+            if (!user) {
+                clearAuthCache();
                 if (typeof window !== "undefined") {
                     localStorage.clear();
                     sessionStorage.clear();
@@ -112,14 +85,16 @@ export function useUserProtection() {
 
         const handleVisibilityChange = () => {
             if (document.visibilityState === "visible") {
+                clearAuthCache();
                 checkAuth();
             }
         };
 
         document.addEventListener("visibilitychange", handleVisibilityChange);
-
         return () => {
+            cancelled = true;
             document.removeEventListener("visibilitychange", handleVisibilityChange);
         };
-    }, [router]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
 }

@@ -10,34 +10,61 @@ export interface AuthUser {
     role: string;
 }
 
+// Module-level cache so multiple hook instances (Navbar + protection hook)
+// share a single in-flight request and a single resolved value per page load.
+let cachedUser: AuthUser | null | undefined = undefined; // undefined = not yet fetched
+let inflight: Promise<AuthUser | null> | null = null;
+
+export function fetchAuthUser(): Promise<AuthUser | null> {
+    if (cachedUser !== undefined) return Promise.resolve(cachedUser);
+    if (inflight) return inflight;
+
+    inflight = fetch("/api/auth/me", {
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+    })
+        .then((res) => {
+            if (!res.ok) return null;
+            return res.json() as Promise<AuthUser>;
+        })
+        .catch(() => null)
+        .then((user) => {
+            cachedUser = user;
+            inflight = null;
+            return user;
+        });
+
+    return inflight;
+}
+
+// Call this on logout so the next page load re-fetches.
+export function clearAuthCache() {
+    cachedUser = undefined;
+    inflight = null;
+}
+
 export function useAuth() {
     const [user, setUser] = useState<AuthUser | null>(null);
     const [loading, setLoading] = useState(true);
+    // Capture router ref once — avoids re-running the effect on every navigation.
     const router = useRouter();
 
     useEffect(() => {
-        async function fetchUser() {
-            try {
-                const response = await fetch("/api/auth/me");
+        let cancelled = false;
 
-                if (!response.ok) {
-                    // User not authenticated
-                    router.push("/auth/login");
-                    return;
-                }
-
-                const userData = await response.json();
-                setUser(userData);
-            } catch (error) {
-                console.error("Failed to fetch user:", error);
+        fetchAuthUser().then((userData) => {
+            if (cancelled) return;
+            if (!userData) {
                 router.push("/auth/login");
-            } finally {
-                setLoading(false);
+            } else {
+                setUser(userData);
             }
-        }
+            setLoading(false);
+        });
 
-        fetchUser();
-    }, [router]);
+        return () => { cancelled = true; };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Empty deps: only run once per mount — router is stable in Next 15.
 
     return { user, loading };
 }

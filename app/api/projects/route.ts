@@ -5,56 +5,49 @@ import prisma from "@/app/lib/prisma";
 export async function GET() {
     try {
         const projects = await prisma.projects.findMany({
-            include: {
+            select: {
+                project_id: true,
+                name: true,
+                description: true,
+                status: true,
+                priority: true,
+                start_date: true,
+                due_date: true,
+                created_at: true,
                 tasks: {
+                    select: { id: true, status: true },
+                },
+                project_members: {
                     select: {
-                        id: true,
-                        status: true,
-                        assignee_id: true,
-                        users_tasks_assignee_idTousers: {
-                            select: {
-                                userid: true,
-                                username: true,
-                                email: true,
-                            },
+                        users: {
+                            select: { userid: true, username: true },
                         },
                     },
                 },
             },
-            orderBy: {
-                created_at: "desc",
-            },
+            orderBy: { created_at: "desc" },
         });
 
-        // Transform data to match frontend expectations
-        const transformedProjects = projects.map((project: any) => {
+        const transformedProjects = projects.map((project) => {
             const totalTasks = project.tasks.length;
             const completedTasks = project.tasks.filter(
-                (task: any) => task.status === "DONE"
+                (task) => task.status === "DONE"
             ).length;
 
             // Calculate progress based on completed tasks
             const progress = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
-            // Get unique team members from tasks
-            const teamMap = new Map();
-            project.tasks.forEach((task: any) => {
-                if (task.users_tasks_assignee_idTousers) {
-                    const user = task.users_tasks_assignee_idTousers;
-                    if (!teamMap.has(user.userid)) {
-                        teamMap.set(user.userid, {
-                            name: user.username,
-                            avatar: user.username
-                                .split(" ")
-                                .map((n: string) => n[0])
-                                .join("")
-                                .toUpperCase()
-                                .slice(0, 2),
-                            color: `bg-${["blue", "purple", "emerald", "orange", "pink", "indigo", "teal"][user.userid % 7]}-500`,
-                        });
-                    }
-                }
-            });
+            const colors = ["blue", "purple", "emerald", "orange", "pink", "indigo", "teal"];
+            const team = project.project_members.map((m) => ({
+                name: m.users.username,
+                avatar: m.users.username
+                    .split(" ")
+                    .map((n) => n[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2),
+                color: `bg-${colors[m.users.userid % 7]}-500`,
+            }));
 
             return {
                 id: project.project_id,
@@ -77,13 +70,10 @@ export async function GET() {
                         year: "numeric",
                     })
                     : "",
-                team: Array.from(teamMap.values()),
-                tasks: {
-                    total: totalTasks,
-                    completed: completedTasks,
-                },
-                budget: "", // Not in schema, can be added later if needed
-                category: "", // Not in schema, can be added later if needed
+                team,
+                tasks: { total: totalTasks, completed: completedTasks },
+                budget: "",
+                category: "",
             };
         });
 

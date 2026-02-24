@@ -17,8 +17,8 @@ const prisma =
     }),
   });
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+// Always persist on globalThis so HMR hot-reloads in dev
+// don't create new PrismaClient instances (and new connection pools).
+globalForPrisma.prisma = prisma;
 
 export default prisma;
