@@ -237,7 +237,10 @@ export function AdminNavbar() {
         </div>
 
         {/* History */}
-        <button className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-300 text-slate-400 hover:bg-slate-800 hover:text-slate-100">
+        <button
+          onClick={() => router.push('/AdminPanel/history')}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all duration-300 text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+        >
           <History className="w-4 h-4" />
           <span className="hidden lg:inline">History</span>
         </button>

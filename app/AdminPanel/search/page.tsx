@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -19,28 +19,11 @@ import {
   TrendingUp,
   FileText,
 } from 'lucide-react';
+import type { SearchTask, SearchProject } from '@/app/lib/search';
 
-// Mock data - Tasks
-const mockTasks = [
-  { id: 1, title: "Design homepage mockup", description: "Create modern UI design", status: "Completed", priority: "High", assignee: "Sarah Chen", dueDate: "Jan 20, 2026", project: "Website Redesign", type: "task" },
-  { id: 2, title: "Implement responsive navbar", description: "Mobile-first approach", status: "Completed", priority: "High", assignee: "Mike Johnson", dueDate: "Jan 22, 2026", project: "Website Redesign", type: "task" },
-  { id: 3, title: "Create component library", description: "Reusable UI components", status: "In Progress", priority: "Medium", assignee: "Emma Davis", dueDate: "Feb 5, 2026", project: "Website Redesign", type: "task" },
-  { id: 4, title: "Setup authentication flow", description: "OAuth and JWT implementation", status: "In Progress", priority: "High", assignee: "Alex Wilson", dueDate: "Feb 10, 2026", project: "Mobile App", type: "task" },
-  { id: 5, title: "Write API documentation", description: "Complete REST API docs", status: "Pending", priority: "Low", assignee: "Mike Johnson", dueDate: "Feb 28, 2026", project: "Dashboard Analytics", type: "task" },
-  { id: 6, title: "Database schema design", description: "PostgreSQL optimization", status: "Pending", priority: "High", assignee: "David Kim", dueDate: "Feb 15, 2026", project: "Mobile App", type: "task" },
-  { id: 7, title: "User testing sessions", description: "Conduct usability tests", status: "In Progress", priority: "Medium", assignee: "Sarah Chen", dueDate: "Feb 12, 2026", project: "Website Redesign", type: "task" },
-  { id: 8, title: "Performance optimization", description: "Improve load times", status: "Pending", priority: "Medium", assignee: "Alex Wilson", dueDate: "Mar 1, 2026", project: "Dashboard Analytics", type: "task" },
-];
+// ─── Types ────────────────────────────────────────────────────────────────────
 
-// Mock data - Projects
-const mockProjects = [
-  { id: 1, name: "Website Redesign", description: "Complete overhaul of company website with modern design", status: "In Progress", priority: "High", progress: 75, team: 4, type: "project" },
-  { id: 2, name: "Mobile App Development", description: "Native iOS and Android app for customer engagement", status: "In Progress", priority: "High", progress: 45, team: 3, type: "project" },
-  { id: 3, name: "Dashboard Analytics", description: "Advanced analytics dashboard with real-time data", status: "Review", priority: "Medium", progress: 90, team: 2, type: "project" },
-  { id: 4, name: "API Integration", description: "Third-party API integration for payment processing", status: "Planning", priority: "Medium", progress: 30, team: 3, type: "project" },
-  { id: 5, name: "Marketing Campaign", description: "Q1 2026 digital marketing campaign launch", status: "Completed", priority: "Low", progress: 100, team: 2, type: "project" },
-  { id: 6, name: "Security Audit", description: "Comprehensive security audit and penetration testing", status: "On Hold", priority: "High", progress: 20, team: 2, type: "project" },
-];
+type SearchResult = (SearchTask | SearchProject) & { type: 'task' | 'project' };
 
 type SavedSearch = {
   id: number;
@@ -55,19 +38,23 @@ type SavedSearch = {
   };
 };
 
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function SearchPage() {
   const searchParams = useSearchParams();
+
+  // ── State ──────────────────────────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<'all' | 'tasks' | 'projects'>('all');
 
-  // Initialize search query from URL parameter
-  useEffect(() => {
-    const queryParam = searchParams.get('q');
-    if (queryParam) {
-      setSearchQuery(queryParam);
-    }
-  }, [searchParams]);
+  // Data from API
+  const [allTasks, setAllTasks] = useState<SearchTask[]>([]);
+  const [allProjects, setAllProjects] = useState<SearchProject[]>([]);
+  const [assignees, setAssignees] = useState<string[]>([]);
+  const [projectNames, setProjectNames] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Filters
   const [priorityFilter, setPriorityFilter] = useState('All');
@@ -79,55 +66,89 @@ export default function SearchPage() {
   // Saved searches
   const [savedSearches, setSavedSearches] = useState<SavedSearch[]>([
     { id: 1, name: "High Priority Tasks", query: "", filters: { priority: "High", status: "All", assignee: "All", dateRange: "All", project: "All" } },
-    { id: 2, name: "My Overdue Tasks", query: "", filters: { priority: "All", status: "Pending", assignee: "Sarah Chen", dateRange: "Overdue", project: "All" } },
+    { id: 2, name: "My Overdue Tasks", query: "", filters: { priority: "All", status: "Pending", assignee: "All", dateRange: "Overdue", project: "All" } },
   ]);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [newSearchName, setNewSearchName] = useState('');
 
-  // Extract unique values for filters
-  const uniqueAssignees = ['All', ...new Set(mockTasks.map(t => t.assignee))];
-  const uniqueProjects = ['All', ...new Set(mockTasks.map(t => t.project))];
+  // Debounce ref
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // ── Filter options ─────────────────────────────────────────────────────────
+  const uniqueAssignees = ['All', ...assignees];
+  const uniqueProjects = ['All', ...projectNames];
   const priorityOptions = ['All', 'High', 'Medium', 'Low'];
   const statusOptions = ['All', 'Pending', 'In Progress', 'Completed', 'Review', 'Planning', 'On Hold'];
   const dateRangeOptions = ['All', 'Today', 'This Week', 'This Month', 'Overdue'];
 
-  // Search and filter logic
-  const filteredResults = useMemo(() => {
-    const allItems = [...mockTasks, ...mockProjects];
+  // ── Fetch data from API ────────────────────────────────────────────────────
+  const fetchData = useCallback(async (
+    query: string,
+    priority: string,
+    status: string,
+    assignee: string,
+    project: string,
+    dateRange: string,
+  ) => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const params = new URLSearchParams({
+        q: query,
+        priority,
+        status,
+        assignee,
+        project,
+        dateRange,
+      });
+      const res = await fetch(`/api/search?${params.toString()}`);
+      if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+      const data = await res.json();
+      setAllTasks(data.tasks ?? []);
+      setAllProjects(data.projects ?? []);
+      setAssignees(data.assignees ?? []);
+      setProjectNames(data.projectNames ?? []);
+    } catch (err) {
+      console.error('Search fetch error:', err);
+      setError('Failed to load search results. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
 
-    return allItems.filter(item => {
-      // Search query
-      const searchLower = searchQuery.toLowerCase();
-      const matchesSearch = !searchQuery ||
-        ('title' in item && item.title.toLowerCase().includes(searchLower)) ||
-        ('name' in item && item.name.toLowerCase().includes(searchLower)) ||
-        item.description.toLowerCase().includes(searchLower) ||
-        ('assignee' in item && item.assignee.toLowerCase().includes(searchLower));
+  // ── Initialize from URL param ──────────────────────────────────────────────
+  useEffect(() => {
+    const queryParam = searchParams.get('q');
+    if (queryParam) {
+      setSearchQuery(queryParam);
+    }
+  }, [searchParams]);
 
-      // Priority filter
-      const matchesPriority = priorityFilter === 'All' || item.priority === priorityFilter;
+  // ── Debounced re-fetch on filter changes ───────────────────────────────────
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchData(searchQuery, priorityFilter, statusFilter, assigneeFilter, projectFilter, dateRangeFilter);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [searchQuery, priorityFilter, statusFilter, assigneeFilter, projectFilter, dateRangeFilter, fetchData]);
 
-      // Status filter
-      const matchesStatus = statusFilter === 'All' || item.status === statusFilter;
+  // ── Combine results ────────────────────────────────────────────────────────
+  const filteredResults: SearchResult[] = useMemo(() => {
+    return [...allTasks, ...allProjects] as SearchResult[];
+  }, [allTasks, allProjects]);
 
-      // Assignee filter (only for tasks)
-      const matchesAssignee = assigneeFilter === 'All' ||
-        ('assignee' in item && item.assignee === assigneeFilter);
+  const tasks = allTasks;
+  const projects = allProjects;
 
-      // Project filter (only for tasks)
-      const matchesProject = projectFilter === 'All' ||
-        ('project' in item && item.project === projectFilter);
+  const displayResults: SearchResult[] =
+    activeTab === 'all' ? filteredResults :
+      activeTab === 'tasks' ? (tasks as SearchResult[]) :
+        (projects as SearchResult[]);
 
-      return matchesSearch && matchesPriority && matchesStatus && matchesAssignee && matchesProject;
-    });
-  }, [searchQuery, priorityFilter, statusFilter, assigneeFilter, projectFilter]);
-
-  const tasks = filteredResults.filter(item => item.type === 'task');
-  const projects = filteredResults.filter(item => item.type === 'project');
-
-  const displayResults = activeTab === 'all' ? filteredResults :
-    activeTab === 'tasks' ? tasks : projects;
-
+  // ── Saved search helpers ───────────────────────────────────────────────────
   const clearFilters = () => {
     setSearchQuery('');
     setPriorityFilter('All');
@@ -170,6 +191,7 @@ export default function SearchPage() {
     setSavedSearches(savedSearches.filter(s => s.id !== id));
   };
 
+  // ── Badge / color helpers ──────────────────────────────────────────────────
   const getStatusColor = (status: string) => {
     const colors: { [key: string]: string } = {
       'In Progress': 'bg-blue-100 text-blue-700 border-blue-200',
@@ -195,6 +217,7 @@ export default function SearchPage() {
     assigneeFilter !== 'All' || dateRangeFilter !== 'All' ||
     projectFilter !== 'All';
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -205,7 +228,7 @@ export default function SearchPage() {
               <Search className="w-7 h-7 text-white" />
             </div>
             <div>
-              <h1 className="text-4xl font-black text-slate-900 tracking-tight">Search & Filters</h1>
+              <h1 className="text-4xl font-black text-slate-900 tracking-tight">Search &amp; Filters</h1>
               <p className="text-slate-500 font-medium mt-1">Search across all tasks and projects</p>
             </div>
           </div>
@@ -264,15 +287,27 @@ export default function SearchPage() {
               <div className="space-y-3">
                 <div className="flex items-center justify-between py-2 border-b border-white/10">
                   <span className="text-sm text-white/70">Total Results</span>
-                  <span className="font-black text-xl">{filteredResults.length}</span>
+                  {isLoading ? (
+                    <span className="font-black text-xl animate-pulse">—</span>
+                  ) : (
+                    <span className="font-black text-xl">{filteredResults.length}</span>
+                  )}
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-white/10">
                   <span className="text-sm text-white/70">Tasks</span>
-                  <span className="font-black">{tasks.length}</span>
+                  {isLoading ? (
+                    <span className="font-black animate-pulse">—</span>
+                  ) : (
+                    <span className="font-black">{tasks.length}</span>
+                  )}
                 </div>
                 <div className="flex items-center justify-between py-2">
                   <span className="text-sm text-white/70">Projects</span>
-                  <span className="font-black">{projects.length}</span>
+                  {isLoading ? (
+                    <span className="font-black animate-pulse">—</span>
+                  ) : (
+                    <span className="font-black">{projects.length}</span>
+                  )}
                 </div>
               </div>
             </div>
@@ -411,7 +446,7 @@ export default function SearchPage() {
                     : 'text-slate-600 hover:bg-slate-50'
                     }`}
                 >
-                  All Results ({filteredResults.length})
+                  All Results ({isLoading ? '…' : filteredResults.length})
                 </button>
                 <button
                   onClick={() => setActiveTab('tasks')}
@@ -420,7 +455,7 @@ export default function SearchPage() {
                     : 'text-slate-600 hover:bg-slate-50'
                     }`}
                 >
-                  Tasks ({tasks.length})
+                  Tasks ({isLoading ? '…' : tasks.length})
                 </button>
                 <button
                   onClick={() => setActiveTab('projects')}
@@ -429,13 +464,58 @@ export default function SearchPage() {
                     : 'text-slate-600 hover:bg-slate-50'
                     }`}
                 >
-                  Projects ({projects.length})
+                  Projects ({isLoading ? '…' : projects.length})
                 </button>
               </div>
 
               {/* Results List */}
               <div className="p-6">
-                {displayResults.length === 0 ? (
+                {/* Error State */}
+                {error && (
+                  <div className="text-center py-12">
+                    <div className="w-16 h-16 bg-red-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                      <X className="w-8 h-8 text-red-400" />
+                    </div>
+                    <h3 className="text-lg font-black text-slate-900 mb-2">Something went wrong</h3>
+                    <p className="text-slate-500 text-sm">{error}</p>
+                    <button
+                      onClick={() => fetchData(searchQuery, priorityFilter, statusFilter, assigneeFilter, projectFilter, dateRangeFilter)}
+                      className="mt-4 px-6 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl font-bold text-sm hover:shadow-lg transition-all"
+                    >
+                      Retry
+                    </button>
+                  </div>
+                )}
+
+                {/* Loading State */}
+                {!error && isLoading && (
+                  <div className="space-y-3">
+                    {[1, 2, 3, 4].map(i => (
+                      <div key={i} className="p-4 rounded-xl border border-slate-200 bg-white animate-pulse">
+                        <div className="flex items-start gap-4">
+                          <div className="w-10 h-10 rounded-lg bg-slate-200 flex-shrink-0" />
+                          <div className="flex-1 space-y-2">
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1 space-y-2">
+                                <div className="h-4 bg-slate-200 rounded w-2/3" />
+                                <div className="h-3 bg-slate-100 rounded w-1/2" />
+                              </div>
+                              <div className="ml-4 h-6 w-20 bg-slate-200 rounded-full" />
+                            </div>
+                            <div className="flex gap-4">
+                              <div className="h-3 bg-slate-100 rounded w-16" />
+                              <div className="h-3 bg-slate-100 rounded w-24" />
+                              <div className="h-3 bg-slate-100 rounded w-20" />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Empty State */}
+                {!error && !isLoading && displayResults.length === 0 && (
                   <div className="text-center py-12">
                     <div className="w-16 h-16 bg-slate-100 rounded-2xl flex items-center justify-center mx-auto mb-4">
                       <Search className="w-8 h-8 text-slate-400" />
@@ -443,7 +523,10 @@ export default function SearchPage() {
                     <h3 className="text-lg font-black text-slate-900 mb-2">No results found</h3>
                     <p className="text-slate-500 text-sm">Try adjusting your search or filters</p>
                   </div>
-                ) : (
+                )}
+
+                {/* Results */}
+                {!error && !isLoading && displayResults.length > 0 && (
                   <div className="space-y-3">
                     {displayResults.map((item) => (
                       <div key={`${item.type}-${item.id}`}>
@@ -475,14 +558,18 @@ export default function SearchPage() {
                                     <User className="w-3 h-3" />
                                     {item.assignee}
                                   </span>
-                                  <span className="flex items-center gap-1">
-                                    <Calendar className="w-3 h-3" />
-                                    {item.dueDate}
-                                  </span>
-                                  <span className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg">
-                                    <Folder className="w-3 h-3" />
-                                    {item.project}
-                                  </span>
+                                  {item.dueDate && (
+                                    <span className="flex items-center gap-1">
+                                      <Calendar className="w-3 h-3" />
+                                      {item.dueDate}
+                                    </span>
+                                  )}
+                                  {item.project && (
+                                    <span className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg">
+                                      <Folder className="w-3 h-3" />
+                                      {item.project}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>

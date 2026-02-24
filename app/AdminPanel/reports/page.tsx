@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BarChart3,
   TrendingUp,
@@ -16,51 +16,105 @@ import {
   Award,
   ArrowUpRight,
   ArrowDownRight,
+  X,
 } from 'lucide-react';
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface OverallStats {
+  totalTasks: number;
+  completedTasks: number;
+  inProgressTasks: number;
+  totalProjects: number;
+  activeProjects: number;
+  completionRate: number;
+}
+
+interface ProjectProgress {
+  id: number;
+  name: string;
+  progress: number;
+  totalTasks: number;
+  completedTasks: number;
+  status: string;
+}
+
+interface TeamMember {
+  name: string;
+  avatar: string;
+  tasks: number;
+  completed: number;
+  inProgress: number;
+  pending: number;
+  efficiency: number;
+  color: string;
+}
+
+interface TeamPerformance {
+  avgEfficiency: number;
+  totalTasks: number;
+  totalDone: number;
+  teamSize: number;
+}
+
+interface ActivityItem {
+  id: number;
+  user: string;
+  action: string;
+  item: string;
+  time: string;
+  type: 'task' | 'comment';
+}
+
+interface ReportsData {
+  overallStats: OverallStats;
+  projectProgress: ProjectProgress[];
+  teamWorkload: TeamMember[];
+  teamPerformance: TeamPerformance;
+  recentActivity: ActivityItem[];
+}
+
+// ─── Loading Skeleton ─────────────────────────────────────────────────────────
+
+function StatCardSkeleton() {
+  return (
+    <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 animate-pulse">
+      <div className="flex items-center justify-between mb-4">
+        <div className="w-12 h-12 rounded-xl bg-slate-200" />
+        <div className="w-12 h-4 bg-slate-200 rounded" />
+      </div>
+      <div className="h-9 bg-slate-200 rounded w-16 mb-2" />
+      <div className="h-4 bg-slate-100 rounded w-24 mb-2" />
+      <div className="h-3 bg-slate-100 rounded w-28" />
+    </div>
+  );
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function ReportsPage() {
-  // Mock data - in production, fetch from API
-  const overallStats = {
-    totalTasks: 156,
-    completedTasks: 98,
-    inProgressTasks: 42,
-    pendingTasks: 16,
-    completionRate: 62.8,
-    avgCompletionTime: '3.2 days',
-    totalProjects: 6,
-    activeProjects: 4,
-  };
+  const [data, setData] = useState<ReportsData | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const trends = {
-    tasksThisWeek: { value: 24, change: 12.5, isPositive: true },
-    completionRate: { value: 62.8, change: 8.3, isPositive: true },
-    teamProductivity: { value: 89, change: -3.2, isPositive: false },
-  };
-
-  const projectProgress = [
-    { id: 1, name: 'Website Redesign', progress: 75, totalTasks: 24, completedTasks: 18, status: 'On Track' },
-    { id: 2, name: 'Mobile App Development', progress: 45, totalTasks: 32, completedTasks: 14, status: 'On Track' },
-    { id: 3, name: 'Dashboard Analytics', progress: 90, totalTasks: 20, completedTasks: 18, status: 'On Track' },
-    { id: 4, name: 'API Integration', progress: 30, totalTasks: 18, completedTasks: 5, status: 'At Risk' },
-    { id: 5, name: 'Marketing Campaign', progress: 100, totalTasks: 15, completedTasks: 15, status: 'Completed' },
-    { id: 6, name: 'Security Audit', progress: 20, totalTasks: 25, completedTasks: 5, status: 'Delayed' },
-  ];
-
-  const teamWorkload = [
-    { name: 'Sarah Chen', avatar: 'SC', tasks: 12, completed: 8, inProgress: 3, pending: 1, efficiency: 92, color: 'bg-blue-500' },
-    { name: 'Mike Johnson', avatar: 'MJ', tasks: 15, completed: 10, inProgress: 4, pending: 1, efficiency: 88, color: 'bg-purple-500' },
-    { name: 'Emma Davis', avatar: 'ED', tasks: 10, completed: 7, inProgress: 2, pending: 1, efficiency: 95, color: 'bg-emerald-500' },
-    { name: 'Alex Wilson', avatar: 'AW', tasks: 14, completed: 9, inProgress: 3, pending: 2, efficiency: 85, color: 'bg-orange-500' },
-    { name: 'David Kim', avatar: 'DK', tasks: 11, completed: 6, inProgress: 4, pending: 1, efficiency: 78, color: 'bg-pink-500' },
-  ];
-
-  const recentActivity = [
-    { id: 1, user: 'Sarah Chen', action: 'completed', item: 'Design homepage mockup', time: '10 minutes ago', type: 'task' },
-    { id: 2, user: 'Mike Johnson', action: 'created', item: 'Mobile App Development', time: '1 hour ago', type: 'project' },
-    { id: 3, user: 'Emma Davis', action: 'updated', item: 'Create component library', time: '2 hours ago', type: 'task' },
-    { id: 4, user: 'Alex Wilson', action: 'completed', item: 'Setup authentication flow', time: '3 hours ago', type: 'task' },
-    { id: 5, user: 'David Kim', action: 'commented on', item: 'Database schema design', time: '4 hours ago', type: 'task' },
-  ];
+  useEffect(() => {
+    const fetchReports = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        const res = await fetch('/api/reports');
+        if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+        const json = await res.json();
+        setData(json);
+      } catch (err) {
+        console.error('Reports fetch error:', err);
+        setError('Failed to load report data. Please try again.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchReports();
+  }, []);
 
   const getStatusColor = (status: string) => {
     const colors: { [key: string]: string } = {
@@ -72,6 +126,29 @@ export default function ReportsPage() {
     return colors[status] || 'bg-slate-100 text-slate-700';
   };
 
+  // ── Derived display values ──────────────────────────────────────────────────
+
+  const overallStats = data?.overallStats ?? {
+    totalTasks: 0,
+    completedTasks: 0,
+    inProgressTasks: 0,
+    totalProjects: 0,
+    activeProjects: 0,
+    completionRate: 0,
+  };
+
+  const projectProgress = data?.projectProgress ?? [];
+  const teamWorkload = data?.teamWorkload ?? [];
+  const teamPerformance = data?.teamPerformance ?? {
+    avgEfficiency: 0,
+    totalTasks: 0,
+    totalDone: 0,
+    teamSize: 0,
+  };
+  const recentActivity = data?.recentActivity ?? [];
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -82,69 +159,99 @@ export default function ReportsPage() {
               <BarChart3 className="w-7 h-7 text-white" />
             </div>
             <div>
-              <h1 className="text-4xl font-black text-slate-900 tracking-tight">Reports & Analytics</h1>
+              <h1 className="text-4xl font-black text-slate-900 tracking-tight">Reports &amp; Analytics</h1>
               <p className="text-slate-500 font-medium mt-1">Track project performance and team productivity</p>
             </div>
           </div>
         </div>
 
+        {/* Error State */}
+        {error && (
+          <div className="mb-8 p-4 bg-red-50 border border-red-200 rounded-2xl flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+              <p className="text-red-700 font-medium text-sm">{error}</p>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-red-100 hover:bg-red-200 rounded-xl text-red-700 font-bold text-sm transition-colors"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Overview Statistics */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           {/* Total Tasks */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
-                <CheckCircle2 className="w-6 h-6 text-white" />
+          {isLoading ? (
+            <>
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+              <StatCardSkeleton />
+            </>
+          ) : (
+            <>
+              {/* Total Tasks */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-lg transition-shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 flex items-center justify-center shadow-lg">
+                    <CheckCircle2 className="w-6 h-6 text-white" />
+                  </div>
+                  <div className="flex items-center gap-1 text-xs font-bold text-emerald-600">
+                    <ArrowUpRight className="w-4 h-4" />
+                    Live
+                  </div>
+                </div>
+                <h3 className="text-3xl font-black text-slate-900 mb-1">{overallStats.totalTasks}</h3>
+                <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">Total Tasks</p>
+                <p className="text-xs text-slate-500 mt-2">{overallStats.inProgressTasks} in progress</p>
               </div>
-              <div className={`flex items-center gap-1 text-xs font-bold ${trends.tasksThisWeek.isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
-                {trends.tasksThisWeek.isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-                {trends.tasksThisWeek.change}%
-              </div>
-            </div>
-            <h3 className="text-3xl font-black text-slate-900 mb-1">{overallStats.totalTasks}</h3>
-            <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">Total Tasks</p>
-            <p className="text-xs text-slate-500 mt-2">{trends.tasksThisWeek.value} this week</p>
-          </div>
 
-          {/* Completed Tasks */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg">
-                <Target className="w-6 h-6 text-white" />
+              {/* Completed Tasks */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-lg transition-shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-500 to-emerald-600 flex items-center justify-center shadow-lg">
+                    <Target className="w-6 h-6 text-white" />
+                  </div>
+                  <div className={`flex items-center gap-1 text-xs font-bold ${overallStats.completionRate >= 50 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {overallStats.completionRate >= 50 ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
+                    {overallStats.completionRate}%
+                  </div>
+                </div>
+                <h3 className="text-3xl font-black text-slate-900 mb-1">{overallStats.completedTasks}</h3>
+                <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">Completed</p>
+                <p className="text-xs text-slate-500 mt-2">{overallStats.completionRate}% completion rate</p>
               </div>
-              <div className={`flex items-center gap-1 text-xs font-bold ${trends.completionRate.isPositive ? 'text-emerald-600' : 'text-red-600'}`}>
-                {trends.completionRate.isPositive ? <ArrowUpRight className="w-4 h-4" /> : <ArrowDownRight className="w-4 h-4" />}
-                {trends.completionRate.change}%
-              </div>
-            </div>
-            <h3 className="text-3xl font-black text-slate-900 mb-1">{overallStats.completedTasks}</h3>
-            <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">Completed</p>
-            <p className="text-xs text-slate-500 mt-2">{overallStats.completionRate}% completion rate</p>
-          </div>
 
-          {/* In Progress */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg">
-                <Clock className="w-6 h-6 text-white" />
+              {/* In Progress */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-lg transition-shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg">
+                    <Clock className="w-6 h-6 text-white" />
+                  </div>
+                </div>
+                <h3 className="text-3xl font-black text-slate-900 mb-1">{overallStats.inProgressTasks}</h3>
+                <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">In Progress</p>
+                <p className="text-xs text-slate-500 mt-2">
+                  {overallStats.totalTasks - overallStats.completedTasks - overallStats.inProgressTasks} not started
+                </p>
               </div>
-            </div>
-            <h3 className="text-3xl font-black text-slate-900 mb-1">{overallStats.inProgressTasks}</h3>
-            <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">In Progress</p>
-            <p className="text-xs text-slate-500 mt-2">Avg. {overallStats.avgCompletionTime}</p>
-          </div>
 
-          {/* Active Projects */}
-          <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-lg transition-shadow">
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg">
-                <Folder className="w-6 h-6 text-white" />
+              {/* Active Projects */}
+              <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-lg transition-shadow">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 flex items-center justify-center shadow-lg">
+                    <Folder className="w-6 h-6 text-white" />
+                  </div>
+                </div>
+                <h3 className="text-3xl font-black text-slate-900 mb-1">{overallStats.activeProjects}</h3>
+                <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">Active Projects</p>
+                <p className="text-xs text-slate-500 mt-2">of {overallStats.totalProjects} total</p>
               </div>
-            </div>
-            <h3 className="text-3xl font-black text-slate-900 mb-1">{overallStats.activeProjects}</h3>
-            <p className="text-sm font-bold text-slate-600 uppercase tracking-wide">Active Projects</p>
-            <p className="text-xs text-slate-500 mt-2">of {overallStats.totalProjects} total</p>
-          </div>
+            </>
+          )}
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -157,43 +264,62 @@ export default function ReportsPage() {
                   <Folder className="w-5 h-5 text-blue-600" />
                   Project Progress
                 </h2>
-                <span className="text-sm text-slate-500 font-medium">{projectProgress.length} Projects</span>
+                <span className="text-sm text-slate-500 font-medium">
+                  {isLoading ? '—' : `${projectProgress.length} Projects`}
+                </span>
               </div>
 
               <div className="space-y-4">
-                {projectProgress.map((project) => (
-                  <div key={project.id} className="p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="flex-1">
-                        <h3 className="font-black text-slate-900 text-sm mb-1">{project.name}</h3>
-                        <p className="text-xs text-slate-500">
-                          {project.completedTasks} of {project.totalTasks} tasks completed
-                        </p>
+                {isLoading ? (
+                  [1, 2, 3, 4].map(i => (
+                    <div key={i} className="p-4 bg-slate-50 rounded-xl animate-pulse">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex-1 space-y-2">
+                          <div className="h-4 bg-slate-200 rounded w-40" />
+                          <div className="h-3 bg-slate-100 rounded w-28" />
+                        </div>
+                        <div className="h-6 w-20 bg-slate-200 rounded-full" />
                       </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold border-2 ${getStatusColor(project.status)}`}>
-                        {project.status}
-                      </span>
+                      <div className="h-3 bg-slate-200 rounded-full" />
                     </div>
-                    <div className="relative">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-xs font-bold text-slate-600">{project.progress}%</span>
+                  ))
+                ) : projectProgress.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 font-medium">No projects found</div>
+                ) : (
+                  projectProgress.map((project) => (
+                    <div key={project.id} className="p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex-1">
+                          <h3 className="font-black text-slate-900 text-sm mb-1">{project.name}</h3>
+                          <p className="text-xs text-slate-500">
+                            {project.completedTasks} of {project.totalTasks} tasks completed
+                          </p>
+                        </div>
+                        <span className={`px-3 py-1 rounded-full text-xs font-bold border-2 ${getStatusColor(project.status)}`}>
+                          {project.status}
+                        </span>
                       </div>
-                      <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all duration-500 ${project.progress === 100
+                      <div className="relative">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-slate-600">{project.progress}%</span>
+                        </div>
+                        <div className="h-3 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all duration-500 ${project.progress === 100
                               ? 'bg-gradient-to-r from-emerald-500 to-green-500'
                               : project.progress >= 70
                                 ? 'bg-gradient-to-r from-blue-500 to-purple-500'
                                 : project.progress >= 40
                                   ? 'bg-gradient-to-r from-orange-500 to-yellow-500'
                                   : 'bg-gradient-to-r from-red-500 to-pink-500'
-                            }`}
-                          style={{ width: `${project.progress}%` }}
-                        />
+                              }`}
+                            style={{ width: `${project.progress}%` }}
+                          />
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
 
@@ -204,25 +330,42 @@ export default function ReportsPage() {
                 Recent Activity
               </h2>
               <div className="space-y-3">
-                {recentActivity.map((activity) => (
-                  <div key={activity.id} className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                      {activity.user.substring(0, 2).toUpperCase()}
+                {isLoading ? (
+                  [1, 2, 3, 4, 5].map(i => (
+                    <div key={i} className="flex items-start gap-3 p-3 animate-pulse">
+                      <div className="w-8 h-8 rounded-full bg-slate-200 flex-shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 bg-slate-200 rounded w-3/4" />
+                        <div className="h-3 bg-slate-100 rounded w-24" />
+                      </div>
+                      <div className="w-16 h-6 bg-slate-200 rounded-lg" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm text-slate-900">
-                        <span className="font-bold">{activity.user}</span>{' '}
-                        <span className="text-slate-600">{activity.action}</span>{' '}
-                        <span className="font-bold">{activity.item}</span>
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">{activity.time}</p>
+                  ))
+                ) : recentActivity.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 font-medium">No recent activity</div>
+                ) : (
+                  recentActivity.map((activity) => (
+                    <div key={activity.id} className="flex items-start gap-3 p-3 hover:bg-slate-50 rounded-xl transition-colors">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                        {activity.user.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-slate-900">
+                          <span className="font-bold">{activity.user}</span>{' '}
+                          <span className="text-slate-600">{activity.action}</span>{' '}
+                          <span className="font-bold">{activity.item}</span>
+                        </p>
+                        <p className="text-xs text-slate-500 mt-1">{activity.time}</p>
+                      </div>
+                      <span className={`px-2 py-1 rounded-lg text-xs font-bold ${activity.type === 'comment'
+                        ? 'bg-purple-100 text-purple-700'
+                        : 'bg-blue-100 text-blue-700'
+                        }`}>
+                        {activity.type === 'comment' ? 'comment' : 'task'}
+                      </span>
                     </div>
-                    <span className={`px-2 py-1 rounded-lg text-xs font-bold ${activity.type === 'project' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                      {activity.type}
-                    </span>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
             </div>
           </div>
@@ -235,41 +378,63 @@ export default function ReportsPage() {
                 Team Workload
               </h2>
               <div className="space-y-4">
-                {teamWorkload.map((member, index) => (
-                  <div key={index} className="p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
-                    <div className="flex items-center gap-3 mb-3">
-                      <div className={`w-10 h-10 rounded-full ${member.color} flex items-center justify-center text-white font-bold shadow-lg`}>
-                        {member.avatar}
+                {isLoading ? (
+                  [1, 2, 3, 4, 5].map(i => (
+                    <div key={i} className="p-4 bg-slate-50 rounded-xl animate-pulse">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-200" />
+                        <div className="flex-1 space-y-2">
+                          <div className="h-4 bg-slate-200 rounded w-24" />
+                          <div className="h-3 bg-slate-100 rounded w-20" />
+                        </div>
+                        <div className="w-12 h-6 bg-slate-200 rounded-lg" />
                       </div>
-                      <div className="flex-1">
-                        <h3 className="font-black text-slate-900 text-sm">{member.name}</h3>
-                        <p className="text-xs text-slate-500">{member.tasks} tasks assigned</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="h-12 bg-slate-100 rounded-lg" />
+                        <div className="h-12 bg-slate-100 rounded-lg" />
+                        <div className="h-12 bg-slate-100 rounded-lg" />
                       </div>
-                      <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${member.efficiency >= 90 ? 'bg-emerald-100 text-emerald-700' :
+                    </div>
+                  ))
+                ) : teamWorkload.length === 0 ? (
+                  <div className="text-center py-8 text-slate-400 font-medium">No team data found</div>
+                ) : (
+                  teamWorkload.map((member, index) => (
+                    <div key={index} className="p-4 bg-slate-50 rounded-xl hover:bg-slate-100 transition-colors">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={`w-10 h-10 rounded-full ${member.color} flex items-center justify-center text-white font-bold shadow-lg`}>
+                          {member.avatar}
+                        </div>
+                        <div className="flex-1">
+                          <h3 className="font-black text-slate-900 text-sm">{member.name}</h3>
+                          <p className="text-xs text-slate-500">{member.tasks} tasks assigned</p>
+                        </div>
+                        <div className={`flex items-center gap-1 px-2 py-1 rounded-lg ${member.efficiency >= 90 ? 'bg-emerald-100 text-emerald-700' :
                           member.efficiency >= 80 ? 'bg-blue-100 text-blue-700' :
                             'bg-orange-100 text-orange-700'
-                        }`}>
-                        <Award className="w-3 h-3" />
-                        <span className="text-xs font-bold">{member.efficiency}%</span>
+                          }`}>
+                          <Award className="w-3 h-3" />
+                          <span className="text-xs font-bold">{member.efficiency}%</span>
+                        </div>
                       </div>
-                    </div>
 
-                    <div className="grid grid-cols-3 gap-2 text-center">
-                      <div className="bg-emerald-50 rounded-lg p-2">
-                        <p className="text-lg font-black text-emerald-700">{member.completed}</p>
-                        <p className="text-xs text-slate-600 font-medium">Done</p>
-                      </div>
-                      <div className="bg-blue-50 rounded-lg p-2">
-                        <p className="text-lg font-black text-blue-700">{member.inProgress}</p>
-                        <p className="text-xs text-slate-600 font-medium">Active</p>
-                      </div>
-                      <div className="bg-slate-100 rounded-lg p-2">
-                        <p className="text-lg font-black text-slate-700">{member.pending}</p>
-                        <p className="text-xs text-slate-600 font-medium">Todo</p>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="bg-emerald-50 rounded-lg p-2">
+                          <p className="text-lg font-black text-emerald-700">{member.completed}</p>
+                          <p className="text-xs text-slate-600 font-medium">Done</p>
+                        </div>
+                        <div className="bg-blue-50 rounded-lg p-2">
+                          <p className="text-lg font-black text-blue-700">{member.inProgress}</p>
+                          <p className="text-xs text-slate-600 font-medium">In Progress</p>
+                        </div>
+                        <div className="bg-slate-100 rounded-lg p-2">
+                          <p className="text-lg font-black text-slate-700">{member.pending}</p>
+                          <p className="text-xs text-slate-600 font-medium">Not Started</p>
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  ))
+                )}
               </div>
 
               {/* Team Summary */}
@@ -281,19 +446,27 @@ export default function ReportsPage() {
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between">
                     <span className="text-slate-600">Avg. Efficiency</span>
-                    <span className="font-black text-slate-900">87.6%</span>
+                    <span className="font-black text-slate-900">
+                      {isLoading ? '—' : `${teamPerformance.avgEfficiency}%`}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-600">Total Tasks</span>
-                    <span className="font-black text-slate-900">62</span>
+                    <span className="font-black text-slate-900">
+                      {isLoading ? '—' : teamPerformance.totalTasks}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-600">Completed</span>
-                    <span className="font-black text-emerald-700">40</span>
+                    <span className="font-black text-emerald-700">
+                      {isLoading ? '—' : teamPerformance.totalDone}
+                    </span>
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-slate-600">Team Members</span>
-                    <span className="font-black text-slate-900">{teamWorkload.length}</span>
+                    <span className="font-black text-slate-900">
+                      {isLoading ? '—' : teamPerformance.teamSize}
+                    </span>
                   </div>
                 </div>
               </div>
