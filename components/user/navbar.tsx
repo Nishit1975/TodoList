@@ -90,7 +90,7 @@ export function UserNavbar() {
                                 </>
                             ) : (
                                 <>
-                                    <p className="text-sm font-semibold text-white">{user?.username || "Guest"}</p>
+                                    <p className="text-sm font-semibold text-white">{user?.username}</p>
                                     <p className="text-xs text-slate-400">User Account</p>
                                 </>
                             )}
@@ -101,21 +101,24 @@ export function UserNavbar() {
                 {/* Logout */}
                 <button
                     onClick={async () => {
-                        // Clear client-side storage first
+                        // 1. Wipe any client-side storage that might hold user data
                         if (typeof window !== 'undefined') {
                             localStorage.clear();
                             sessionStorage.clear();
                         }
-                        // Call server action to clear cookie
+                        // 2. Call server action to clear the auth_session cookie
                         await logout();
+                        // 3. Bust Next.js router/server-component cache so the
+                        //    previous user's data cannot survive into the next session
+                        router.refresh();
                     }}
                     className="flex items-center gap-2 px-3 py-2 text-slate-300 hover:text-red-400 hover:bg-slate-700/50 rounded-lg transition-colors"
                 >
                     <LogOut className="w-4 h-4" />
                     <span className="hidden xl:inline text-sm font-medium">Logout</span>
                 </button>
-            </div>
+            </div >
 
-        </header>
+        </header >
     );
 }

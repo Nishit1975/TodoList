@@ -105,6 +105,33 @@ model tasks {
   @@index([project_id], map: "project_id")
 }
 
+model chat_messages {
+  id         Int      @id @default(autoincrement())
+  content    String   @db.Text
+  sender_id  Int
+  created_at DateTime @default(now()) @db.Timestamp(0)
+  users      users    @relation(fields: [sender_id], references: [userid], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([sender_id], map: "sender_id")
+  @@index([created_at], map: "created_at")
+}
+
+model direct_messages {
+  id          Int      @id @default(autoincrement())
+  content     String   @db.Text
+  sender_id   Int
+  receiver_id Int
+  is_read     Boolean  @default(false)
+  created_at  DateTime @default(now()) @db.Timestamp(0)
+  sender      users    @relation("dm_sender",   fields: [sender_id],   references: [userid], onDelete: Cascade, onUpdate: NoAction)
+  receiver    users    @relation("dm_receiver", fields: [receiver_id], references: [userid], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([sender_id],   map: "dm_sender_id")
+  @@index([receiver_id], map: "dm_receiver_id")
+  @@index([created_at],  map: "dm_created_at")
+  @@index([is_read],     map: "dm_is_read")
+}
+
 model users {
   userid                           Int               @id @default(autoincrement())
   username                         String            @db.VarChar(100)
@@ -118,6 +145,9 @@ model users {
   tasks_tasks_assignee_idTousers   tasks[]           @relation("tasks_assignee_idTousers")
   tasks_tasks_created_by_idTousers tasks[]           @relation("tasks_created_by_idTousers")
   project_members                  project_members[]
+  chat_messages                    chat_messages[]
+  dm_sent                          direct_messages[] @relation("dm_sender")
+  dm_received                      direct_messages[] @relation("dm_receiver")
 }
 
 enum projects_status {

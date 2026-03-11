@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 export interface AuthUser {
     userId: number;
@@ -10,51 +10,52 @@ export interface AuthUser {
     role: string;
 }
 
-// Module-level cache so multiple hook instances (Navbar + protection hook)
-// share a single in-flight request and a single resolved value per page load.
-let cachedUser: AuthUser | null | undefined = undefined; // undefined = not yet fetched
-let inflight: Promise<AuthUser | null> | null = null;
-
+/**
+ * Fetches the currently authenticated user from the server.
+ * Uses cache: "no-store" so the browser never serves a cached (stale) response.
+ */
 export function fetchAuthUser(): Promise<AuthUser | null> {
-    if (cachedUser !== undefined) return Promise.resolve(cachedUser);
-    if (inflight) return inflight;
-
-    inflight = fetch("/api/auth/me", {
+    return fetch("/api/auth/me", {
         cache: "no-store",
-        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+        headers: {
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+            Pragma: "no-cache",
+        },
     })
         .then((res) => {
             if (!res.ok) return null;
             return res.json() as Promise<AuthUser>;
         })
-        .catch(() => null)
-        .then((user) => {
-            cachedUser = user;
-            inflight = null;
-            return user;
-        });
-
-    return inflight;
+        .catch(() => null);
 }
 
-// Call this on logout so the next page load re-fetches.
-export function clearAuthCache() {
-    cachedUser = undefined;
-    inflight = null;
-}
+// Kept for API compatibility — actual cache prevention is done via fetch headers.
+export function clearAuthCache() { /* no-op */ }
 
+/**
+ * useAuth — returns the currently logged-in user and a loading flag.
+ *
+ * Re-fetches on every pathname change so that switching users in the same
+ * browser session always shows the correct, fresh username.
+ */
 export function useAuth() {
     const [user, setUser] = useState<AuthUser | null>(null);
     const [loading, setLoading] = useState(true);
-    // Capture router ref once — avoids re-running the effect on every navigation.
     const router = useRouter();
+    const pathname = usePathname(); // Re-run on every navigation
 
     useEffect(() => {
         let cancelled = false;
 
+        // Reset to loading state immediately when the route changes
+        // so stale user data is never visible during the transition.
+        setLoading(true);
+        setUser(null);
+
         fetchAuthUser().then((userData) => {
             if (cancelled) return;
             if (!userData) {
+                // No valid session — redirect to login
                 router.push("/auth/login");
             } else {
                 setUser(userData);
@@ -63,8 +64,8 @@ export function useAuth() {
         });
 
         return () => { cancelled = true; };
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []); // Empty deps: only run once per mount — router is stable in Next 15.
+    }, [pathname]); // ← re-fetch whenever the user navigates to a new page
 
     return { user, loading };
 }
+

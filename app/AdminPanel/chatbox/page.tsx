@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Send, MessageSquare, Users, Circle, ArrowLeft, Hash, Lock } from "lucide-react";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Message {
     id: number;
@@ -30,7 +30,7 @@ interface User {
     role: string;
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getInitials(name: string) {
     return name.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2);
@@ -72,8 +72,6 @@ function groupByDate<T extends { createdAt: string }>(messages: T[]) {
     }, []);
 }
 
-// ─── Message Bubble ───────────────────────────────────────────────────────────
-
 function MessageBubble({ msg, currentUserId, accentFrom, accentTo }: {
     msg: { id: number; content: string; senderId: number; senderName: string; createdAt: string };
     currentUserId: number | null;
@@ -92,7 +90,7 @@ function MessageBubble({ msg, currentUserId, accentFrom, accentTo }: {
                 )}
                 <div className={`px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
                     isMe
-                        ? `bg-gradient-to-br ${accentFrom} ${accentTo} text-white rounded-br-sm shadow-lg shadow-purple-200`
+                        ? `bg-gradient-to-br ${accentFrom} ${accentTo} text-white rounded-br-sm shadow-lg shadow-blue-200`
                         : "bg-slate-100 text-slate-800 rounded-bl-sm"
                 }`}>
                     {msg.content}
@@ -103,26 +101,28 @@ function MessageBubble({ msg, currentUserId, accentFrom, accentTo }: {
     );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Main Page ─────────────────────────────────────────────────────────────────
 
-export default function UserChatBoxPage() {
-    const [generalMessages, setGeneralMessages] = useState<Message[]>([]);
-    const [dmMessages, setDmMessages] = useState<DmMessage[]>([]);
-    const [users, setUsers] = useState<User[]>([]);
-    const [newMessage, setNewMessage] = useState("");
-    const [currentUserId, setCurrentUserId] = useState<number | null>(null);
-    const [selectedUser, setSelectedUser] = useState<User | null>(null);
-    const [isSending, setIsSending] = useState(false);
+export default function AdminChatBoxPage() {
+    const [generalMessages, setGeneralMessages]   = useState<Message[]>([]);
+    const [dmMessages, setDmMessages]             = useState<DmMessage[]>([]);
+    const [users, setUsers]                       = useState<User[]>([]);
+    const [newMessage, setNewMessage]             = useState("");
+    const [currentUserId, setCurrentUserId]       = useState<number | null>(null);
+    const [selectedUser, setSelectedUser]         = useState<User | null>(null);
+    const [isSending, setIsSending]               = useState(false);
     const [isLoadingMessages, setIsLoadingMessages] = useState(true);
-    const [isLoadingUsers, setIsLoadingUsers] = useState(true);
+    const [isLoadingUsers, setIsLoadingUsers]     = useState(true);
     // Set of senderIds that have unread DMs to the current user
-    const [unreadSenders, setUnreadSenders] = useState<Set<number>>(new Set());
+    const [unreadSenders, setUnreadSenders]       = useState<Set<number>>(new Set());
     const messagesEndRef = useRef<HTMLDivElement>(null);
-    const inputRef = useRef<HTMLInputElement>(null);
+    const inputRef       = useRef<HTMLInputElement>(null);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     };
+
+    // ── Fetch helpers ──────────────────────────────────────────────────────────
 
     const fetchGeneralMessages = useCallback(async () => {
         try {
@@ -202,6 +202,8 @@ export default function UserChatBoxPage() {
         }
     }, []);
 
+    // ── Initial load ───────────────────────────────────────────────────────────
+
     useEffect(() => {
         fetchGeneralMessages();
         fetchUsers();
@@ -209,7 +211,8 @@ export default function UserChatBoxPage() {
         fetchUnread();
     }, [fetchGeneralMessages, fetchUsers, fetchCurrentUser, fetchUnread]);
 
-    // Poll every 5 seconds for the active view + unread counts
+    // ── Polling every 5 s: active view + unread counts ─────────────────────────
+
     useEffect(() => {
         const interval = setInterval(() => {
             if (selectedUser) {
@@ -222,7 +225,8 @@ export default function UserChatBoxPage() {
         return () => clearInterval(interval);
     }, [selectedUser, fetchGeneralMessages, fetchDmMessages, fetchUnread]);
 
-    // When selected user changes, load their thread
+    // ── When selected user changes ─────────────────────────────────────────────
+
     useEffect(() => {
         if (selectedUser) {
             setIsLoadingMessages(true);
@@ -238,6 +242,8 @@ export default function UserChatBoxPage() {
     }, [selectedUser, fetchDmMessages, fetchGeneralMessages, markAsRead]);
 
     useEffect(() => { scrollToBottom(); }, [generalMessages, dmMessages]);
+
+    // ── Send ───────────────────────────────────────────────────────────────────
 
     const handleSend = async () => {
         const trimmed = newMessage.trim();
@@ -279,21 +285,30 @@ export default function UserChatBoxPage() {
         if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
     };
 
-    const activeMessages = selectedUser ? dmMessages : generalMessages;
-    const grouped = groupByDate(activeMessages);
+    // ── Handle clicking a user ─────────────────────────────────────────────────
 
-    // UserPanel palette
-    const accentFrom = "from-indigo-600 via-purple-600";
-    const accentTo   = "to-pink-600";
+    const handleSelectUser = (u: User) => {
+        setSelectedUser(u);
+        // markAsRead is called inside the selectedUser useEffect
+    };
+
+    // ── Derived ────────────────────────────────────────────────────────────────
+
+    const activeMessages = selectedUser ? dmMessages : generalMessages;
+    const grouped        = groupByDate(activeMessages);
+    const accentFrom     = "from-blue-600";
+    const accentTo       = "to-purple-600";
+
+    // ──────────────────────────────────────────────────────────────────────────
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 p-6">
+        <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-6">
             <div className="max-w-full mx-auto h-[calc(100vh-3rem)] flex flex-col">
 
                 {/* Page Header */}
                 <div className="mb-4">
                     <h1 className="text-3xl font-black text-slate-900 tracking-tight flex items-center gap-3 mb-1">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 flex items-center justify-center shadow-lg">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg">
                             <MessageSquare className="w-5 h-5 text-white" />
                         </div>
                         Team Chat
@@ -304,13 +319,13 @@ export default function UserChatBoxPage() {
                 {/* Layout */}
                 <div className="flex flex-1 gap-4 min-h-0">
 
-                    {/* ── Left Panel ── */}
-                    <div className="w-72 flex-shrink-0 bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white flex flex-col overflow-hidden">
+                    {/* ── Left Panel ───────────────────────────────────────── */}
+                    <div className="w-72 flex-shrink-0 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col overflow-hidden">
                         <div className="p-4 border-b border-slate-100">
                             <div className="flex items-center gap-2">
                                 <Users className="w-4 h-4 text-slate-500" />
                                 <h2 className="font-bold text-slate-700 text-sm uppercase tracking-wider">Team Members</h2>
-                                <span className="ml-auto text-xs font-bold bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{users.length}</span>
+                                <span className="ml-auto text-xs font-bold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{users.length}</span>
                             </div>
                         </div>
 
@@ -319,14 +334,14 @@ export default function UserChatBoxPage() {
                             <button
                                 onClick={() => setSelectedUser(null)}
                                 className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left ${
-                                    !selectedUser ? "bg-purple-50 ring-2 ring-purple-200" : "hover:bg-slate-50"
+                                    !selectedUser ? "bg-blue-50 ring-2 ring-blue-200" : "hover:bg-slate-50"
                                 }`}
                             >
-                                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-600 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+                                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-sm">
                                     <Hash className="w-4 h-4 text-white" />
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                    <p className={`text-sm font-semibold ${!selectedUser ? "text-purple-700" : "text-slate-800"}`}>General</p>
+                                    <p className={`text-sm font-semibold ${!selectedUser ? "text-blue-700" : "text-slate-800"}`}>General</p>
                                     <p className="text-xs text-slate-400">Everyone</p>
                                 </div>
                             </button>
@@ -352,16 +367,16 @@ export default function UserChatBoxPage() {
                                         return (
                                             <button
                                                 key={u.userid}
-                                                onClick={() => setSelectedUser(u)}
+                                                onClick={() => handleSelectUser(u)}
                                                 className={`w-full flex items-center gap-3 p-2.5 rounded-xl transition-colors text-left ${
-                                                    isSelected ? "bg-purple-50 ring-2 ring-purple-200" : "hover:bg-slate-50"
+                                                    isSelected ? "bg-blue-50 ring-2 ring-blue-200" : "hover:bg-slate-50"
                                                 }`}
                                             >
                                                 <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${getAvatarColor(u.userid)} flex items-center justify-center flex-shrink-0 shadow-sm`}>
                                                     <span className="text-white text-xs font-bold">{getInitials(u.username)}</span>
                                                 </div>
                                                 <div className="flex-1 min-w-0">
-                                                    <p className={`text-sm font-semibold truncate ${isSelected ? "text-purple-700" : "text-slate-800"}`}>
+                                                    <p className={`text-sm font-semibold truncate ${isSelected ? "text-blue-700" : "text-slate-800"}`}>
                                                         {u.username}
                                                     </p>
                                                     <p className="text-xs text-slate-400 capitalize">{u.role}</p>
@@ -377,8 +392,8 @@ export default function UserChatBoxPage() {
                         </div>
                     </div>
 
-                    {/* ── Right Panel ── */}
-                    <div className="flex-1 bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white flex flex-col min-h-0 overflow-hidden">
+                    {/* ── Right Panel ──────────────────────────────────────── */}
+                    <div className="flex-1 bg-white rounded-2xl shadow-sm border border-slate-100 flex flex-col min-h-0 overflow-hidden">
 
                         {/* Chat Header */}
                         <div className="p-4 border-b border-slate-100 flex items-center gap-3">
@@ -404,7 +419,7 @@ export default function UserChatBoxPage() {
                                 </>
                             ) : (
                                 <>
-                                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 to-pink-600 flex items-center justify-center shadow-sm">
+                                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-sm">
                                         <Hash className="w-4 h-4 text-white" />
                                     </div>
                                     <div>
@@ -420,14 +435,14 @@ export default function UserChatBoxPage() {
                             {isLoadingMessages ? (
                                 <div className="flex items-center justify-center h-full">
                                     <div className="text-center">
-                                        <div className="w-10 h-10 border-4 border-purple-200 border-t-purple-600 rounded-full animate-spin mx-auto mb-3" />
+                                        <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin mx-auto mb-3" />
                                         <p className="text-slate-400 text-sm">Loading messages...</p>
                                     </div>
                                 </div>
                             ) : activeMessages.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center">
-                                    <div className="w-16 h-16 rounded-2xl bg-purple-50 flex items-center justify-center mb-4">
-                                        <MessageSquare className="w-8 h-8 text-purple-400" />
+                                    <div className="w-16 h-16 rounded-2xl bg-blue-50 flex items-center justify-center mb-4">
+                                        <MessageSquare className="w-8 h-8 text-blue-400" />
                                     </div>
                                     <p className="text-slate-500 font-semibold">
                                         {selectedUser ? `No messages with ${selectedUser.username} yet` : "No messages yet"}
@@ -461,7 +476,7 @@ export default function UserChatBoxPage() {
 
                         {/* Input */}
                         <div className="p-4 border-t border-slate-100">
-                            <div className="flex items-center gap-3 bg-slate-50 rounded-2xl border-2 border-slate-100 px-4 py-2 focus-within:border-purple-300 focus-within:bg-white transition-all">
+                            <div className="flex items-center gap-3 bg-slate-50 rounded-2xl border-2 border-slate-100 px-4 py-2 focus-within:border-blue-300 focus-within:bg-white transition-all">
                                 <input
                                     ref={inputRef}
                                     type="text"
@@ -479,7 +494,7 @@ export default function UserChatBoxPage() {
                                 <button
                                     onClick={handleSend}
                                     disabled={!newMessage.trim() || isSending}
-                                    className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-600 via-purple-600 to-pink-600 flex items-center justify-center flex-shrink-0 shadow-sm hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed"
+                                    className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 shadow-sm hover:scale-105 transition-all duration-200 disabled:opacity-50 disabled:hover:scale-100 disabled:cursor-not-allowed"
                                     title="Send message"
                                 >
                                     <Send className="w-4 h-4 text-white" />

@@ -15,6 +15,7 @@ import {
     Settings,
     LogOut,
     CheckCircle2,
+    MessageSquare,
 } from "lucide-react";
 import { logout } from "@/components/actions/logout";
 
@@ -25,6 +26,7 @@ const mainNavItems = [
     { name: "Search", href: "/AdminPanel/search", icon: Search },
     { name: "Users & Roles", href: "/AdminPanel/users", icon: UserCog },
     { name: "Reports", href: "/AdminPanel/reports", icon: FileText },
+    { name: "Chat Box", href: "/AdminPanel/chatbox", icon: MessageSquare },
 ];
 
 const bottomNavItems = [

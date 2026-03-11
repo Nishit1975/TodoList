@@ -1,22 +1,20 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
     Plus,
     Search,
-    Filter,
     Calendar,
     User,
     Flag,
     Clock,
-    MoreVertical,
-    X,
     CheckSquare,
     Circle,
     AlertCircle,
     Edit,
     Trash2,
+    CheckCircle2,
 } from 'lucide-react';
 
 // Task type based on API response
@@ -37,41 +35,36 @@ interface Task {
 
 type Status = "NOT_STARTED" | "IN_PROGRESS" | "DONE";
 
-// Map database status to display status
-const statusDisplayMap: { [key: string]: string } = {
-    "NOT_STARTED": "Pending",
-    "IN_PROGRESS": "In Progress",
-    "IN_REVIEW": "In Progress",
-    "DONE": "Completed",
-};
-
-// Reverse map for drag and drop
-const displayToDbStatusMap: { [key: string]: string } = {
-    "Pending": "NOT_STARTED",
-    "In Progress": "IN_PROGRESS",
-    "Completed": "DONE",
-};
-
 export default function AdminTasksPage() {
     const [tasks, setTasks] = useState<Task[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+
+    // isLoading: true only during the INITIAL page load — controls the full-page spinner.
     const [isLoading, setIsLoading] = useState(true);
+
+    // isFetching: true during background re-fetches (after drag-drop / delete).
+    // Shows inline skeleton cards only; never replaces the whole board with a spinner.
+    const [isFetching, setIsFetching] = useState(false);
+
     const [error, setError] = useState<string | null>(null);
 
-    // Fetch tasks on mount
-    useEffect(() => {
-        fetchTasks();
-    }, []);
-
-    const fetchTasks = async () => {
-        try {
+    // ─── fetchTasks ──────────────────────────────────────────────────────────
+    // `isInitial` = true  → controls the full-page loading spinner (first mount).
+    // `isInitial` = false → background refresh; only shows inline skeleton cards.
+    const fetchTasks = useCallback(async (isInitial = false) => {
+        if (isInitial) {
             setIsLoading(true);
-            setError(null);
-            const response = await fetch('/api/tasks');
+        } else {
+            setIsFetching(true);
+        }
+        setError(null);
+
+        try {
+            const response = await fetch('/api/tasks', { cache: 'no-store' });
 
             if (!response.ok) {
-                throw new Error('Failed to fetch tasks');
+                throw new Error(`Failed to fetch tasks (HTTP ${response.status})`);
             }
 
             const data = await response.json();
@@ -80,24 +73,32 @@ export default function AdminTasksPage() {
             console.error('Error fetching tasks:', err);
             setError('Failed to load tasks. Please try again.');
         } finally {
+            // Always reset BOTH flags so we can never get stuck in a loading state.
             setIsLoading(false);
+            setIsFetching(false);
         }
-    };
+    }, []);
 
-    const columns: { status: string; displayStatus: string; color: string; icon: any }[] = [
+    // Fetch once on mount (initial load).
+    useEffect(() => {
+        fetchTasks(true);
+    }, [fetchTasks]);
+
+    // ─── Kanban column config ────────────────────────────────────────────────
+    const columns: { status: Status; displayStatus: string; color: string; icon: React.ElementType }[] = [
         { status: "NOT_STARTED", displayStatus: "Pending", color: "from-yellow-500 to-orange-500", icon: Circle },
         { status: "IN_PROGRESS", displayStatus: "In Progress", color: "from-blue-500 to-indigo-500", icon: Clock },
         { status: "DONE", displayStatus: "Completed", color: "from-emerald-500 to-green-500", icon: CheckSquare },
     ];
 
-    const getTasksByStatus = (status: string) => {
-        return tasks.filter(task =>
+    const getTasksByStatus = (status: string) =>
+        tasks.filter(task =>
             task.status === status &&
             (task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                 task.assignee.toLowerCase().includes(searchQuery.toLowerCase()))
         );
-    };
 
+    // ─── Drag handlers ───────────────────────────────────────────────────────
     const handleDragStart = (task: Task) => {
         setDraggedTask(task);
     };
@@ -106,17 +107,21 @@ export default function AdminTasksPage() {
         e.preventDefault();
     };
 
-    const handleDrop = async (newStatus: string) => {
+    const handleDrop = async (newStatus: Status) => {
         if (!draggedTask) return;
+        if (draggedTask.status === newStatus) return; // dropped on same column — no-op
 
-        // Optimistically update UI
-        const updatedTasks = tasks.map(task =>
-            task.id === draggedTask.id ? { ...task, status: newStatus } : task
+        // Snapshot the current tasks list BEFORE the optimistic update so we can
+        // roll back accurately if the API call fails.
+        const previousTasks = tasks;
+
+        // 1. Optimistic UI update — instant, no spinner.
+        setTasks(prev =>
+            prev.map(task => task.id === draggedTask.id ? { ...task, status: newStatus } : task)
         );
-        setTasks(updatedTasks);
         setDraggedTask(null);
 
-        // Update in database
+        // 2. Persist to database.
         try {
             const response = await fetch(`/api/tasks/${draggedTask.id}`, {
                 method: 'PUT',
@@ -136,39 +141,85 @@ export default function AdminTasksPage() {
                 throw new Error('Failed to update task');
             }
 
-            // Refresh to get latest data
-            await fetchTasks();
+            // 3. Background re-fetch to sync with DB (inline skeleton, no full-page spinner).
+            await fetchTasks(false);
+
         } catch (err) {
             console.error('Error updating task:', err);
-            // Revert on error
-            setTasks(tasks);
+            // Roll back to the snapshot taken before the optimistic update.
+            setTasks(previousTasks);
             alert('Failed to update task status. Please try again.');
         }
     };
 
+    // ─── Delete handler ──────────────────────────────────────────────────────
     const handleDeleteTask = async (taskId: number, taskTitle: string) => {
         if (!confirm(`Are you sure you want to delete "${taskTitle}"? This action cannot be undone.`)) {
             return;
         }
 
+        // Optimistic removal.
+        const previousTasks = tasks;
+        setTasks(prev => prev.filter(task => task.id !== taskId));
+
         try {
-            const response = await fetch(`/api/tasks/${taskId}`, {
-                method: 'DELETE',
-            });
+            const response = await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
 
             if (!response.ok) {
                 throw new Error('Failed to delete task');
             }
 
-            // Refresh tasks list
-            await fetchTasks();
+            // Background sync to confirm deletion.
+            await fetchTasks(false);
             alert('Task deleted successfully!');
         } catch (err) {
             console.error('Error deleting task:', err);
+            // Restore the list if delete failed.
+            setTasks(previousTasks);
             alert('Failed to delete task. Please try again.');
         }
     };
 
+    // ─── Mark as Done handler ─────────────────────────────────────────────────
+    const handleMarkAsDone = async (task: Task) => {
+        if (task.status === 'DONE') return; // already done — no-op
+
+        const previousTasks = tasks;
+
+        // Optimistic update: move to DONE immediately.
+        setTasks(prev =>
+            prev.map(t => t.id === task.id ? { ...t, status: 'DONE' } : t)
+        );
+
+        try {
+            const response = await fetch(`/api/tasks/${task.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    title: task.title,
+                    description: task.description,
+                    status: 'DONE',
+                    priority: task.priority,
+                    assigneeId: task.assigneeId,
+                    projectId: task.projectId,
+                    dueDate: task.dueDateRaw,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to mark task as done');
+            }
+
+            // Background re-fetch to confirm DB state.
+            await fetchTasks(false);
+        } catch (err) {
+            console.error('Error marking task as done:', err);
+            setTasks(previousTasks);
+            alert('Failed to mark task as done. Please try again.');
+        }
+    };
+
+    // ─── Misc helpers ─────────────────────────────────────────────────────────
     const getPriorityColor = (priority: string) => {
         const colors: { [key: string]: string } = {
             'HIGH': 'bg-red-100 text-red-700 border-red-200',
@@ -178,16 +229,15 @@ export default function AdminTasksPage() {
         return colors[priority] || 'bg-slate-100 text-slate-700';
     };
 
-    const getPriorityDisplay = (priority: string) => {
-        return priority.charAt(0) + priority.slice(1).toLowerCase();
-    };
+    const getPriorityDisplay = (priority: string) =>
+        priority.charAt(0) + priority.slice(1).toLowerCase();
 
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(t => t.status === 'DONE').length;
     const inProgressTasks = tasks.filter(t => t.status === 'IN_PROGRESS' || t.status === 'IN_REVIEW').length;
     const pendingTasks = tasks.filter(t => t.status === 'NOT_STARTED').length;
 
-    // Loading state
+    // ─── Render: Full-page loading (initial mount only) ───────────────────────
     if (isLoading) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center">
@@ -199,7 +249,7 @@ export default function AdminTasksPage() {
         );
     }
 
-    // Error state
+    // ─── Render: Error state ──────────────────────────────────────────────────
     if (error) {
         return (
             <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 flex items-center justify-center p-8">
@@ -212,7 +262,7 @@ export default function AdminTasksPage() {
                         </div>
                     </div>
                     <button
-                        onClick={fetchTasks}
+                        onClick={() => fetchTasks(true)}
                         className="w-full px-4 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors"
                     >
                         Retry
@@ -222,6 +272,7 @@ export default function AdminTasksPage() {
         );
     }
 
+    // ─── Render: Main board ───────────────────────────────────────────────────
     return (
         <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 p-8">
             <div className="max-w-full mx-auto">
@@ -330,77 +381,124 @@ export default function AdminTasksPage() {
                                     onDrop={() => handleDrop(column.status)}
                                     className="flex-1 bg-slate-50/50 rounded-2xl p-4 min-h-[600px] space-y-3"
                                 >
-                                    {columnTasks.map((task) => (
-                                        <div
-                                            key={task.id}
-                                            draggable
-                                            onDragStart={() => handleDragStart(task)}
-                                            className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 cursor-move group"
-                                        >
-                                            {/* Task Header */}
-                                            <div className="flex items-start justify-between mb-3">
-                                                <h3 className="font-black text-slate-900 text-sm leading-tight flex-1 pr-2">
-                                                    {task.title}
-                                                </h3>
-                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <Link
-                                                        href={`/AdminPanel/tasks/edit/${task.id}`}
-                                                        className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors group/edit"
-                                                        title="Edit task"
-                                                    >
-                                                        <Edit className="w-4 h-4 text-slate-400 group-hover/edit:text-blue-600 transition-colors" />
-                                                    </Link>
-                                                    <button
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleDeleteTask(task.id, task.title);
-                                                        }}
-                                                        className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group/delete"
-                                                        title="Delete task"
-                                                    >
-                                                        <Trash2 className="w-4 h-4 text-slate-400 group-hover/delete:text-red-600 transition-colors" />
-                                                    </button>
+                                    {columnTasks.map((task) => {
+                                        const isDone = task.status === 'DONE';
+                                        return (
+                                            <div
+                                                key={task.id}
+                                                draggable
+                                                onDragStart={() => handleDragStart(task)}
+                                                className={`rounded-2xl p-4 shadow-sm border transition-all duration-300 cursor-move group ${
+                                                    isDone
+                                                        ? 'bg-white border-emerald-200 opacity-60'
+                                                        : 'bg-white border-slate-200 hover:shadow-xl hover:-translate-y-1'
+                                                }`}
+                                            >
+                                                {/* Task Header */}
+                                                <div className="flex items-start justify-between mb-3">
+                                                    {/* Strike-through title for completed tasks */}
+                                                    <h3 className={`font-black text-sm leading-tight flex-1 pr-2 ${
+                                                        isDone ? 'line-through text-slate-400' : 'text-slate-900'
+                                                    }`}>
+                                                        {task.title}
+                                                    </h3>
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                        {/* Mark as Done — only on non-completed tasks */}
+                                                        {!isDone && (
+                                                            <button
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleMarkAsDone(task);
+                                                                }}
+                                                                className="p-1.5 hover:bg-emerald-100 rounded-lg transition-colors group/done"
+                                                                title="Mark as Done"
+                                                            >
+                                                                <CheckCircle2 className="w-4 h-4 text-slate-400 group-hover/done:text-emerald-600 transition-colors" />
+                                                            </button>
+                                                        )}
+                                                        <Link
+                                                            href={`/AdminPanel/tasks/edit/${task.id}`}
+                                                            className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors group/edit"
+                                                            title="Edit task"
+                                                        >
+                                                            <Edit className="w-4 h-4 text-slate-400 group-hover/edit:text-blue-600 transition-colors" />
+                                                        </Link>
+                                                        <button
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                handleDeleteTask(task.id, task.title);
+                                                            }}
+                                                            className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group/delete"
+                                                            title="Delete task"
+                                                        >
+                                                            <Trash2 className="w-4 h-4 text-slate-400 group-hover/delete:text-red-600 transition-colors" />
+                                                        </button>
+                                                    </div>
                                                 </div>
-                                            </div>
 
-                                            {/* Task Description */}
-                                            {task.description && (
-                                                <p className="text-xs text-slate-500 mb-3 line-clamp-2">
-                                                    {task.description}
-                                                </p>
-                                            )}
+                                                {/* Task Description */}
+                                                {task.description && (
+                                                    <p className="text-xs text-slate-500 mb-3 line-clamp-2">
+                                                        {task.description}
+                                                    </p>
+                                                )}
 
-                                            {/* Task Meta */}
-                                            <div className="space-y-2">
-                                                <div className="flex items-center gap-2">
-                                                    <span className={`px-2 py-1 rounded-lg text-xs font-bold border ${getPriorityColor(task.priority)}`}>
-                                                        <Flag className="w-3 h-3 inline mr-1" />
-                                                        {getPriorityDisplay(task.priority)}
-                                                    </span>
-                                                    {task.project && (
-                                                        <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
-                                                            {task.project}
+                                                {/* Task Meta */}
+                                                <div className="space-y-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className={`px-2 py-1 rounded-lg text-xs font-bold border ${getPriorityColor(task.priority)}`}>
+                                                            <Flag className="w-3 h-3 inline mr-1" />
+                                                            {getPriorityDisplay(task.priority)}
                                                         </span>
-                                                    )}
-                                                </div>
-                                                <div className="flex items-center justify-between text-xs text-slate-500">
-                                                    <span className="flex items-center gap-1">
-                                                        <User className="w-3 h-3" />
-                                                        {task.assignee}
-                                                    </span>
-                                                    {task.dueDate && (
+                                                        {task.project && (
+                                                            <span className="text-xs text-slate-500 bg-slate-100 px-2 py-1 rounded-lg">
+                                                                {task.project}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center justify-between text-xs text-slate-500">
                                                         <span className="flex items-center gap-1">
-                                                            <Calendar className="w-3 h-3" />
-                                                            {task.dueDate}
+                                                            <User className="w-3 h-3" />
+                                                            {task.assignee}
                                                         </span>
-                                                    )}
+                                                        {task.dueDate && (
+                                                            <span className="flex items-center gap-1">
+                                                                <Calendar className="w-3 h-3" />
+                                                                {task.dueDate}
+                                                            </span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
+
+                                    {/* Inline Skeleton Cards — shown during background re-fetch only */}
+                                    {isFetching && (
+                                        <>
+                                            {[1, 2].map((i) => (
+                                                <div key={i} className="bg-white rounded-2xl p-4 shadow-sm border border-slate-200 animate-pulse">
+                                                    <div className="flex items-start justify-between mb-3">
+                                                        <div className="h-4 bg-slate-200 rounded w-3/4"></div>
+                                                    </div>
+                                                    <div className="space-y-2 mb-3">
+                                                        <div className="h-3 bg-slate-100 rounded w-full"></div>
+                                                        <div className="h-3 bg-slate-100 rounded w-2/3"></div>
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <div className="h-6 bg-slate-100 rounded w-20"></div>
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="h-4 bg-slate-100 rounded w-16"></div>
+                                                            <div className="h-4 bg-slate-100 rounded w-16"></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </>
+                                    )}
 
                                     {/* Empty State */}
-                                    {columnTasks.length === 0 && (
+                                    {!isFetching && columnTasks.length === 0 && (
                                         <div className="flex flex-col items-center justify-center h-40 text-slate-400">
                                             <AlertCircle className="w-8 h-8 mb-2" />
                                             <p className="text-sm font-semibold">No tasks</p>

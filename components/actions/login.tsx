@@ -12,7 +12,7 @@ export async function login(formData: FormData) {
     where: { email, password },
   });
 
-  // ❌ Invalid user
+  //  Invalid user
   if (!user) {
     redirect("/auth/login?error=invalid");
   }

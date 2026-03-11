@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
     LayoutGrid,
     Folder,
@@ -35,6 +35,7 @@ const bottomNavItems = [
 
 export function UserSidebar() {
     const pathname = usePathname();
+    const router = useRouter();
 
     useEffect(() => {
         document.documentElement.classList.add("dark");
@@ -124,13 +125,15 @@ export function UserSidebar() {
             <div className="p-4 border-t border-slate-800">
                 <button
                     onClick={async () => {
-                        // Clear client-side storage first
+                        // 1. Wipe any client-side storage that might hold user data
                         if (typeof window !== 'undefined') {
                             localStorage.clear();
                             sessionStorage.clear();
                         }
-                        // Call server action to clear cookie
+                        // 2. Call server action to clear the auth_session cookie
                         await logout();
+                        // 3. Bust Next.js router/server-component cache
+                        router.refresh();
                     }}
                     className="flex items-center gap-3 px-3 py-2.5 w-full rounded-lg
                         text-sm font-medium text-slate-400
@@ -143,3 +146,4 @@ export function UserSidebar() {
         </aside>
     );
 }
+

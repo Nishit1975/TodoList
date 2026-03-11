@@ -1,12 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Plus,
   Search,
   Calendar,
-  User,
   Flag,
   Clock,
   CheckSquare,
@@ -15,6 +14,7 @@ import {
   ListTodo,
   Edit,
   Trash2,
+  CheckCircle2,
 } from 'lucide-react';
 
 // Task type from API
@@ -34,22 +34,32 @@ export default function UserTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
+
+  // isLoading: true only during the INITIAL page load — controls the full-page spinner.
   const [isLoading, setIsLoading] = useState(true);
+
+  // isFetching: true during background re-fetches (after drag-drop / delete).
+  // Shows inline skeleton cards only; never replaces the whole board with a spinner.
+  const [isFetching, setIsFetching] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch tasks on mount
-  useEffect(() => {
-    fetchTasks();
-  }, []);
-
-  const fetchTasks = async () => {
-    try {
+  // ─── fetchTasks ────────────────────────────────────────────────────────────
+  // `isInitial` = true  → controls the full-page loading spinner (first mount).
+  // `isInitial` = false → background refresh; only shows inline skeleton cards.
+  const fetchTasks = useCallback(async (isInitial = false) => {
+    if (isInitial) {
       setIsLoading(true);
-      setError(null);
-      const response = await fetch('/api/user/tasks');
+    } else {
+      setIsFetching(true);
+    }
+    setError(null);
+
+    try {
+      const response = await fetch('/api/user/tasks', { cache: 'no-store' });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch tasks');
+        throw new Error(`Failed to fetch tasks (HTTP ${response.status})`);
       }
 
       const data = await response.json();
@@ -58,24 +68,32 @@ export default function UserTasksPage() {
       console.error('Error fetching tasks:', err);
       setError('Failed to load tasks. Please try again.');
     } finally {
+      // Always reset BOTH flags so we can never get stuck in a loading state.
       setIsLoading(false);
+      setIsFetching(false);
     }
-  };
+  }, []);
 
-  const columns: { status: Status; color: string; icon: any }[] = [
+  // Fetch once on mount (initial load).
+  useEffect(() => {
+    fetchTasks(true);
+  }, [fetchTasks]);
+
+  // ─── Kanban helpers ────────────────────────────────────────────────────────
+  const columns: { status: Status; color: string; icon: React.ElementType }[] = [
     { status: "Pending", color: "from-amber-500 to-orange-600", icon: Circle },
     { status: "In Progress", color: "from-blue-500 to-indigo-600", icon: Clock },
     { status: "Completed", color: "from-emerald-500 to-green-600", icon: CheckSquare },
   ];
 
-  const getTasksByStatus = (status: Status) => {
-    return tasks.filter(task =>
+  const getTasksByStatus = (status: Status) =>
+    tasks.filter(task =>
       task.status === status &&
       (task.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         task.project.toLowerCase().includes(searchQuery.toLowerCase()))
     );
-  };
 
+  // ─── Drag handlers ─────────────────────────────────────────────────────────
   const handleDragStart = (task: Task) => {
     setDraggedTask(task);
   };
@@ -86,24 +104,24 @@ export default function UserTasksPage() {
 
   const handleDrop = async (status: Status) => {
     if (!draggedTask) return;
+    if (draggedTask.status === status) return; // dropped on same column — no-op
 
-    // Optimistically update UI
-    const updatedTasks = tasks.map(task =>
-      task.id === draggedTask.id ? { ...task, status } : task
+    // Snapshot the current tasks list BEFORE the optimistic update so we can
+    // roll back accurately if the API call fails.
+    const previousTasks = tasks;
+
+    // 1. Optimistic UI update — instant, no spinner.
+    setTasks(prev =>
+      prev.map(task => task.id === draggedTask.id ? { ...task, status } : task)
     );
-    setTasks(updatedTasks);
     setDraggedTask(null);
 
-    // Update in database using secure API (validates ownership)
+    // 2. Persist to database.
     try {
       const response = await fetch(`/api/user/tasks/${draggedTask.id}`, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          status: status, // API handles format conversion
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }), // API handles format conversion
       });
 
       if (!response.ok) {
@@ -118,25 +136,31 @@ export default function UserTasksPage() {
         throw new Error(errorData.error || 'Failed to update task');
       }
 
-      // Success - refresh to get latest data
-      await fetchTasks();
-    } catch (err: any) {
+      // 3. Background re-fetch to sync with DB (inline skeleton, no full-page spinner).
+      await fetchTasks(false);
+
+    } catch (err: unknown) {
       console.error('Error updating task:', err);
-      // Revert on error
-      setTasks(tasks);
-      alert(err.message || 'Failed to update task status. Please try again.');
+      // Roll back to the snapshot taken before the optimistic update.
+      setTasks(previousTasks);
+      const message = err instanceof Error ? err.message : 'Failed to update task status.';
+      alert(`${message} Please try again.`);
     }
   };
 
+  // ─── Delete handler ────────────────────────────────────────────────────────
   const handleDeleteTask = async (taskId: number, taskTitle: string) => {
-    const confirmed = window.confirm(`Are you sure you want to delete "${taskTitle}"? This action cannot be undone.`);
-
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${taskTitle}"? This action cannot be undone.`
+    );
     if (!confirmed) return;
 
+    // Optimistic removal.
+    const previousTasks = tasks;
+    setTasks(prev => prev.filter(task => task.id !== taskId));
+
     try {
-      const response = await fetch(`/api/user/tasks/${taskId}`, {
-        method: 'DELETE',
-      });
+      const response = await fetch(`/api/user/tasks/${taskId}`, { method: 'DELETE' });
 
       if (!response.ok) {
         if (response.status === 403) {
@@ -145,15 +169,54 @@ export default function UserTasksPage() {
         throw new Error('Failed to delete task');
       }
 
-      // Remove task from UI and refresh
-      setTasks(tasks.filter(task => task.id !== taskId));
+      // Background sync to confirm deletion.
+      await fetchTasks(false);
       alert('Task deleted successfully!');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Error deleting task:', err);
-      alert(err.message || 'Failed to delete task. Please try again.');
+      // Restore the list if delete failed.
+      setTasks(previousTasks);
+      const message = err instanceof Error ? err.message : 'Failed to delete task.';
+      alert(`${message} Please try again.`);
     }
   };
 
+  // ─── Mark as Done handler ──────────────────────────────────────────────────
+  const handleMarkAsDone = async (task: Task) => {
+    if (task.status === 'Completed') return; // already done — no-op
+
+    const previousTasks = tasks;
+
+    // Optimistic update: move to Completed immediately.
+    setTasks(prev =>
+      prev.map(t => t.id === task.id ? { ...t, status: 'Completed' } : t)
+    );
+
+    try {
+      const response = await fetch(`/api/user/tasks/${task.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'Completed' }), // API maps → DONE
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 403) throw new Error('You do not have permission to update this task');
+        if (response.status === 404) throw new Error('Task not found');
+        throw new Error(errorData.error || 'Failed to mark task as done');
+      }
+
+      // Background re-fetch to confirm DB state.
+      await fetchTasks(false);
+    } catch (err: unknown) {
+      console.error('Error marking task as done:', err);
+      setTasks(previousTasks);
+      const message = err instanceof Error ? err.message : 'Failed to mark task as done.';
+      alert(`${message} Please try again.`);
+    }
+  };
+
+  // ─── Misc helpers ──────────────────────────────────────────────────────────
   const getPriorityColor = (priority: string) => {
     const colors: { [key: string]: string } = {
       'High': 'bg-red-100 text-red-700 border-red-200',
@@ -171,7 +234,7 @@ export default function UserTasksPage() {
   const inProgressTasks = tasks.filter(t => t.status === 'In Progress').length;
   const completedTasks = tasks.filter(t => t.status === 'Completed').length;
 
-  // Loading state
+  // ─── Render: Full-page loading (initial mount only) ────────────────────────
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 flex items-center justify-center">
@@ -183,7 +246,7 @@ export default function UserTasksPage() {
     );
   }
 
-  // Error state
+  // ─── Render: Error state ───────────────────────────────────────────────────
   if (error) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 flex items-center justify-center p-8">
@@ -196,7 +259,7 @@ export default function UserTasksPage() {
             </div>
           </div>
           <button
-            onClick={fetchTasks}
+            onClick={() => fetchTasks(true)}
             className="w-full px-4 py-2 bg-red-600 text-white rounded-xl font-bold hover:bg-red-700 transition-colors"
           >
             Retry
@@ -206,6 +269,7 @@ export default function UserTasksPage() {
     );
   }
 
+  // ─── Render: Main board ────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-gradient-to-br from-indigo-50 via-white to-pink-50 p-8">
       <div className="max-w-full mx-auto">
@@ -335,7 +399,7 @@ export default function UserTasksPage() {
               <AlertCircle className="w-10 h-10 text-slate-400" />
             </div>
             <h2 className="text-2xl font-black text-slate-900 mb-2">No tasks assigned</h2>
-            <p className="text-slate-500 mb-6">You haven't been assigned any tasks yet. Contact your admin if you believe this is an error.</p>
+            <p className="text-slate-500 mb-6">You haven&apos;t been assigned any tasks yet. Contact your admin if you believe this is an error.</p>
           </div>
         )}
 
@@ -367,77 +431,102 @@ export default function UserTasksPage() {
                     onDrop={() => handleDrop(column.status)}
                     className="flex-1 bg-white/40 backdrop-blur-sm rounded-2xl p-4 min-h-[500px] space-y-3 border border-white"
                   >
-                    {columnTasks.map((task) => (
-                      <div
-                        key={task.id}
-                        draggable
-                        onDragStart={() => handleDragStart(task)}
-                        className="relative group cursor-pointer"
-                        onClick={() => window.location.href = `/UserPanel/tasks/${task.id}`}
-                      >
-                        <div className="absolute inset-0 bg-gradient-to-r from-indigo-400 to-purple-400 rounded-xl blur opacity-0 group-hover:opacity-20 transition-opacity duration-500"></div>
-                        <div className="relative bg-white rounded-2xl p-4 shadow-sm border border-slate-200 hover:shadow-xl hover:-translate-y-1 transition-all duration-300">
-                          {/* Task Header */}
-                          <div className="flex items-start justify-between mb-2">
-                            <h3 className="font-black text-slate-900 text-sm leading-tight flex-1 pr-2">
-                              {task.title}
-                            </h3>
-                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <Link
-                                href={`/UserPanel/tasks/edit/${task.id}`}
-                                className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors group/edit"
-                                title="Edit task"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <Edit className="w-4 h-4 text-slate-400 group-hover/edit:text-blue-600 transition-colors" />
-                              </Link>
-                              <button
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleDeleteTask(task.id, task.title);
-                                }}
-                                className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group/delete"
-                                title="Delete task"
-                              >
-                                <Trash2 className="w-4 h-4 text-slate-400 group-hover/delete:text-red-600 transition-colors" />
-                              </button>
+                    {columnTasks.map((task) => {
+                      const isDone = task.status === 'Completed';
+                      return (
+                        <div
+                          key={task.id}
+                          draggable
+                          onDragStart={() => handleDragStart(task)}
+                          className="relative group cursor-pointer"
+                          onClick={() => window.location.href = `/UserPanel/tasks/${task.id}`}
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-indigo-400 to-purple-400 rounded-xl blur opacity-0 group-hover:opacity-20 transition-opacity duration-500"></div>
+                          {/* Completed tasks get reduced opacity to visually indicate they are done */}
+                          <div className={`relative bg-white rounded-2xl p-4 shadow-sm border transition-all duration-300 ${
+                            isDone
+                              ? 'border-emerald-200 opacity-60'
+                              : 'border-slate-200 hover:shadow-xl hover:-translate-y-1'
+                          }`}>
+                            {/* Task Header */}
+                            <div className="flex items-start justify-between mb-2">
+                              {/* Strike-through title for completed tasks */}
+                              <h3 className={`font-black text-sm leading-tight flex-1 pr-2 ${
+                                isDone ? 'line-through text-slate-400' : 'text-slate-900'
+                              }`}>
+                                {task.title}
+                              </h3>
+                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                {/* Mark as Done — only on non-completed tasks */}
+                                {!isDone && (
+                                  <button
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleMarkAsDone(task);
+                                    }}
+                                    className="p-1.5 hover:bg-emerald-100 rounded-lg transition-colors group/done"
+                                    title="Mark as Done"
+                                  >
+                                    <CheckCircle2 className="w-4 h-4 text-slate-400 group-hover/done:text-emerald-600 transition-colors" />
+                                  </button>
+                                )}
+                                <Link
+                                  href={`/UserPanel/tasks/edit/${task.id}`}
+                                  className="p-1.5 hover:bg-blue-100 rounded-lg transition-colors group/edit"
+                                  title="Edit task"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  <Edit className="w-4 h-4 text-slate-400 group-hover/edit:text-blue-600 transition-colors" />
+                                </Link>
+                                <button
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    handleDeleteTask(task.id, task.title);
+                                  }}
+                                  className="p-1.5 hover:bg-red-100 rounded-lg transition-colors group/delete"
+                                  title="Delete task"
+                                >
+                                  <Trash2 className="w-4 h-4 text-slate-400 group-hover/delete:text-red-600 transition-colors" />
+                                </button>
+                              </div>
                             </div>
-                          </div>
 
-                          {/* Task Description */}
-                          {task.description && (
-                            <p className="text-xs text-slate-500 mb-3 line-clamp-2">
-                              {task.description}
-                            </p>
-                          )}
+                            {/* Task Description */}
+                            {task.description && (
+                              <p className="text-xs text-slate-500 mb-3 line-clamp-2">
+                                {task.description}
+                              </p>
+                            )}
 
-                          {/* Task Meta */}
-                          <div className="space-y-2">
-                            <div className="flex items-center gap-2">
-                              <span className={`px-2 py-1 rounded-lg text-xs font-bold border ${getPriorityColor(task.priority)}`}>
-                                <Flag className="w-3 h-3 inline mr-1" />
-                                {task.priority}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between text-xs text-slate-500">
-                              <span className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg">
-                                {task.project}
-                              </span>
-                              {task.dueDate && (
-                                <span className="flex items-center gap-1">
-                                  <Calendar className="w-3 h-3" />
-                                  {task.dueDate}
+                            {/* Task Meta */}
+                            <div className="space-y-2">
+                              <div className="flex items-center gap-2">
+                                <span className={`px-2 py-1 rounded-lg text-xs font-bold border ${getPriorityColor(task.priority)}`}>
+                                  <Flag className="w-3 h-3 inline mr-1" />
+                                  {task.priority}
                                 </span>
-                              )}
+                              </div>
+                              <div className="flex items-center justify-between text-xs text-slate-500">
+                                <span className="flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-lg">
+                                  {task.project}
+                                </span>
+                                {task.dueDate && (
+                                  <span className="flex items-center gap-1">
+                                    <Calendar className="w-3 h-3" />
+                                    {task.dueDate}
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
 
-                    {/* Loading Skeleton Cards */}
-                    {isLoading && (
+                    {/* Inline Skeleton Cards — shown during background re-fetch only */}
+                    {isFetching && (
                       <>
                         {[1, 2].map((i) => (
                           <div key={i} className="relative group">
@@ -468,7 +557,7 @@ export default function UserTasksPage() {
                     )}
 
                     {/* Empty State */}
-                    {!isLoading && columnTasks.length === 0 && (
+                    {!isFetching && columnTasks.length === 0 && (
                       <div className="flex flex-col items-center justify-center h-40 text-slate-400">
                         <AlertCircle className="w-8 h-8 mb-2" />
                         <p className="text-sm font-semibold">No tasks</p>

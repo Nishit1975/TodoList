@@ -259,7 +259,7 @@ export function AdminNavbar() {
             </div>
           ) : (
             <span className="hidden lg:inline text-sm font-semibold text-slate-200">
-              {user?.username || "Admin"}
+              {user?.username}
             </span>
           )}
         </button>
